@@ -46,6 +46,7 @@ set(SOURCES
         src/blocks.cpp
         src/ALIKED.cpp
         src/DKD.cpp
+        src/input_padder.cpp
         src/get_patches.cpp
         src/SDDH.cpp
         src/deform_conv2d.cpp
@@ -63,7 +64,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
         CUDA_ARCHITECTURES native
         CUDA_STANDARD 17
         CUDA_STANDARD_REQUIRED ON
-        CXX_STANDARD 17
+        CXX_STANDARD 20
         CXX_STANDARD_REQUIRED ON
 )
 

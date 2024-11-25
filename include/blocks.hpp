@@ -2,6 +2,7 @@
 #include <torch/torch.h>
 
 #include <memory>
+#include <span>
 
 class DeformableConv2d : public torch::nn::Module {
 public:
@@ -9,7 +10,8 @@ public:
                      int kernel_size = 3, int stride = 1,
                      int padding = 1, bool bias = false);
 
-    torch::Tensor forward(torch::Tensor x);
+    torch::Tensor forward(const torch::Tensor& x) &;
+    torch::Tensor forward(torch::Tensor x) &&;
 
 private:
     torch::nn::Conv2d offset_conv_{nullptr};
@@ -22,10 +24,11 @@ private:
 class ConvBlock : public torch::nn::Module {
 public:
     ConvBlock(int in_channels, int out_channels,
-              const std::string& conv_type = "conv",
+              std::string_view conv_type = "conv",
               bool mask = false);
 
-    torch::Tensor forward(torch::Tensor x);
+    torch::Tensor forward(torch::Tensor x) &&;
+    torch::Tensor forward(const torch::Tensor& x) &;
 
 private:
     torch::nn::Conv2d conv1_{nullptr}, conv2_{nullptr};
@@ -37,9 +40,10 @@ class ResBlock : public torch::nn::Module {
 public:
     ResBlock(int inplanes, int planes, int stride = 1,
              const torch::nn::Conv2d& downsample = nullptr,
-             const std::string& conv_type = "conv");
+             std::string_view conv_type = "conv");
 
-    torch::Tensor forward(torch::Tensor x);
+    torch::Tensor forward(torch::Tensor x) &&;
+    torch::Tensor forward(const torch::Tensor& x) &;
 
 private:
     torch::nn::Conv2d conv1_{nullptr}, conv2_{nullptr};

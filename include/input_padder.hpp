@@ -1,6 +1,9 @@
 #pragma once
 #include <torch/torch.h>
 
+#include <array>
+#include <span>
+
 class InputPadder {
 public:
     InputPadder(int h, int w, int div_by = 8)
@@ -13,24 +16,19 @@ public:
                 pad_ht / 2, pad_ht - pad_ht / 2};
     }
 
-    torch::Tensor pad(const torch::Tensor& x) {
-        return torch::nn::functional::pad(
-            x,
-            torch::nn::functional::PadFuncOptions({pad_[0], pad_[1], pad_[2], pad_[3]})
-                .mode(torch::kReplicate));
-    }
+    // Move semantics for pad operation
+    torch::Tensor pad(torch::Tensor x) &&;
+    torch::Tensor pad(const torch::Tensor& x) &;
 
-    torch::Tensor unpad(const torch::Tensor& x) {
-        int h = x.size(-2);
-        int w = x.size(-1);
-        return x.index({torch::indexing::Slice(),
-                        torch::indexing::Slice(),
-                        torch::indexing::Slice(pad_[2], h - pad_[3]),
-                        torch::indexing::Slice(pad_[0], w - pad_[1])});
-    }
+    // Move semantics for unpad operation
+    [[maybe_unused]] torch::Tensor unpad(torch::Tensor x) &&;
+    torch::Tensor unpad(const torch::Tensor& x) &;
+
+    void setPadding(std::span<const int> padding);
+    std::span<const int> getPadding() const { return std::span<const int>(pad_); }
 
 private:
     int ht_;
     int wd_;
-    std::vector<int> pad_;
+    std::array<int, 4> pad_;
 };

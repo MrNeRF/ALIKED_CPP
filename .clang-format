@@ -89,7 +89,7 @@ SortIncludes: CaseInsensitive
 IncludeBlocks: Regroup
 IncludeCategories:
   # C++ Standard Library headers
-  - Regex: '^<(cctype|cstring|string|string_view|vector|map|fstream|typeindex|source_location|stacktrace|array|iostream|memory|future|stdexcept|algorithm|random|atomic|sstream|chrono|cstdint|expected|filesystem|functional|mutex|queue|optional|shared_mutex|thread|utility|variant|unordered_map|unordered_set|condition_variable)>$'
+  - Regex: '^<(cctype|span|cstring|string|string_view|vector|map|fstream|typeindex|source_location|stacktrace|array|iostream|memory|future|stdexcept|algorithm|random|atomic|sstream|chrono|cstdint|expected|filesystem|functional|mutex|queue|optional|shared_mutex|thread|utility|variant|unordered_map|unordered_set|condition_variable)>$'
     Priority: 1
     SortPriority: 3
   # C Standard Library headers
