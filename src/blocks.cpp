@@ -154,20 +154,19 @@ DeformableConv2d::DeformableConv2d(int in_channels, int out_channels, int kernel
 }
 
 torch::Tensor DeformableConv2d::forward(torch::Tensor x) {
+    std::cout << x.size(0) << ", " << x.size(1) << ", " << x.size(2) << ", " << x.size(3) << std::endl;
     auto h = x.size(2);
     auto w = x.size(3);
     float max_offset = std::max(h, w) / 4.0f;
 
-    auto out = offset_conv_->forward(x);
-    torch::Tensor offset, mask;
-
-    offset = out;
-    mask = torch::Tensor();
+    // Offset and mask
+    auto offset = offset_conv_->forward(x);
+    auto mask = torch::Tensor();
 
     // Clamp offset values
     offset = offset.clamp(-max_offset, max_offset);
 
-    // Torchvision's deform_conv2d
+    // Deformable convolution
     return vision::ops::deform_conv2d(
             x,                          // input
             regular_conv_->weight,      // weight

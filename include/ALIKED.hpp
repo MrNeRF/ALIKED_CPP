@@ -80,8 +80,10 @@ private:
 
     // Feature extraction layers
     torch::nn::AvgPool2d pool2_{nullptr}, pool4_{nullptr};
-    torch::nn::Sequential block1_{nullptr}, block2_{nullptr},
-        block3_{nullptr}, block4_{nullptr};
+    std::shared_ptr<torch::nn::Module> block1_;
+    std::shared_ptr<torch::nn::Module> block2_;
+    std::shared_ptr<torch::nn::Module> block3_;
+    std::shared_ptr<torch::nn::Module> block4_;
     torch::nn::Conv2d conv1_{nullptr}, conv2_{nullptr},
         conv3_{nullptr}, conv4_{nullptr};
     torch::nn::Sequential score_head_{nullptr};

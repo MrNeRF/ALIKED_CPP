@@ -38,26 +38,19 @@ void ALIKED::init_layers(const std::string& model_name) {
     pool4_ = register_module("pool4", torch::nn::AvgPool2d(torch::nn::AvgPool2dOptions(4).stride(4)));
 
     // Block 1
-    auto block1 = std::make_shared<ConvBlock>(3, config.c1, "conv", false);
-    register_module("block1", block1);
+    block1_ = register_module("block1", std::make_shared<ConvBlock>(3, config.c1, "conv", false));
 
     // Block 2
     auto downsample2 = torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c1, config.c2, 1));
-    auto block2 = std::make_shared<ResBlock>(config.c1, config.c2, 1,downsample2,
-                                             "conv");
-    register_module("block2", block2);
+    block2_ = register_module("block2", std::make_shared<ResBlock>(config.c1, config.c2, 1, downsample2, "conv"));
 
     // Block 3
     auto downsample3 = torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c2, config.c3, 1));
-    auto block3 = std::make_shared<ResBlock>(config.c2, config.c3, 1,downsample3,
-                                             "dcn");
-    register_module("block3", block3);
+    block3_ = register_module("block3", std::make_shared<ResBlock>(config.c2, config.c3, 1, downsample3, "dcn"));
 
     // Block 4
     auto downsample4 = torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c3, config.c4, 1));
-    auto block4 = std::make_shared<ResBlock>(config.c3, config.c4, 1, downsample4,
-                                             "dcn");
-    register_module("block4", block4);
+    block4_ = register_module("block4", std::make_shared<ResBlock>(config.c3, config.c4, 1, downsample4, "dcn"));
 
     // Convolution layers
     conv1_ = register_module("conv1", torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c1, dim_ / 4, 1)));
@@ -66,21 +59,23 @@ void ALIKED::init_layers(const std::string& model_name) {
     conv4_ = register_module("conv4", torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c4, dim_ / 4, 1)));
 
     // Score head
-    auto score_head = torch::nn::Sequential();
-    score_head->push_back("0", torch::nn::Conv2d(torch::nn::Conv2dOptions(dim_, 8, 1)));
-    score_head->push_back("1", torch::nn::SELU());
-    score_head->push_back("2", torch::nn::Conv2d(torch::nn::Conv2dOptions(8, 4, 3).padding(1)));
-    score_head->push_back("3", torch::nn::SELU());
-    score_head->push_back("4", torch::nn::Conv2d(torch::nn::Conv2dOptions(4, 4, 3).padding(1)));
-    score_head->push_back("5", torch::nn::SELU());
-    score_head->push_back("6", torch::nn::Conv2d(torch::nn::Conv2dOptions(4, 1, 3).padding(1)));
-    register_module("score_head", score_head);
+    score_head_ = register_module("score_head", torch::nn::Sequential(
+            torch::nn::Conv2d(torch::nn::Conv2dOptions(dim_, 8, 1)),
+            torch::nn::SELU(),
+            torch::nn::Conv2d(torch::nn::Conv2dOptions(8, 4, 3).padding(1)),
+            torch::nn::SELU(),
+            torch::nn::Conv2d(torch::nn::Conv2dOptions(4, 4, 3).padding(1)),
+            torch::nn::SELU(),
+            torch::nn::Conv2d(torch::nn::Conv2dOptions(4, 1, 3).padding(1))
+    ));
 
     // Descriptor head
     register_module("desc_head", desc_head_);
+
     // DKD
     register_module("dkd", dkd_);
 }
+
 
 std::tuple<torch::Tensor, torch::Tensor>
 ALIKED::extract_dense_map(torch::Tensor image) {
@@ -89,10 +84,11 @@ ALIKED::extract_dense_map(torch::Tensor image) {
     image = padder.pad(image);
 
     // Feature extraction
-    auto x1 = block1_->forward(image);
-    auto x2 = block2_->forward(pool2_->forward(x1));
-    auto x3 = block3_->forward(pool4_->forward(x2));
-    auto x4 = block4_->forward(pool4_->forward(x3));
+    auto x1 = std::dynamic_pointer_cast<ConvBlock>(block1_)->forward(image);
+    auto x2 = std::dynamic_pointer_cast<ResBlock>(block2_)->forward(pool2_->forward(x1));
+    auto x3 = std::dynamic_pointer_cast<ResBlock>(block3_)->forward(pool4_->forward(x2));
+    auto x4 = std::dynamic_pointer_cast<ResBlock>(block4_)->forward(pool4_->forward(x3));
+
 
     // Feature aggregation
     x1 = torch::selu(conv1_->forward(x1));
@@ -151,8 +147,7 @@ ALIKED::forward(torch::Tensor image) {
     return output;
 }
 
-torch::Dict<std::string, torch::Tensor>
-ALIKED::run(cv::Mat& img_rgb) {
+torch::Dict<std::string, torch::Tensor> ALIKED::run(cv::Mat& img_rgb) {
     // Convert OpenCV image to torch tensor
     cv::Mat float_img;
     img_rgb.convertTo(float_img, CV_32F, 1.0 / 255.0);
@@ -166,10 +161,10 @@ ALIKED::run(cv::Mat& img_rgb) {
                        .device(device_);
 
     std::vector<torch::Tensor> tensor_channels;
-    for (const auto& channel : channels)
-    {
-        tensor_channels.push_back(
-            torch::from_blob(channel.data, {channel.rows, channel.cols}, options).clone());
+    for (const auto& channel : channels) {
+        // Create tensor on host first, then transfer to CUDA
+        auto host_tensor = torch::from_blob(channel.data, {channel.rows, channel.cols}, torch::TensorOptions().dtype(torch::kFloat32));
+        tensor_channels.push_back(host_tensor.clone().to(device_));
     }
 
     auto img_tensor = torch::stack(tensor_channels, 0)
