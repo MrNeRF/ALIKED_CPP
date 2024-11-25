@@ -1,15 +1,14 @@
 #include <math.h>
 #include <torch/torch.h>
 
-torch::Tensor get_patches_forward_cuda(const torch::Tensor &map, torch::Tensor &points, int64_t radius);
-torch::Tensor get_patches_backward_cuda(const torch::Tensor &d_patches, torch::Tensor &points, int64_t H, int64_t W);
+torch::Tensor get_patches_forward_cuda(const torch::Tensor& map, torch::Tensor& points, int64_t radius);
+torch::Tensor get_patches_backward_cuda(const torch::Tensor& d_patches, torch::Tensor& points, int64_t H, int64_t W);
 
 // map: CxHxW
 // points: Nx2
 // kernel_size: int
 // return: N x C x kernel_size x kernel_size
-torch::Tensor get_patches_forward_cpu(const torch::Tensor &map, torch::Tensor &points, int64_t kernel_size)
-{
+torch::Tensor get_patches_forward_cpu(const torch::Tensor& map, torch::Tensor& points, int64_t kernel_size) {
     namespace F = torch::nn::functional;
     using namespace torch::indexing;
 
@@ -55,8 +54,7 @@ torch::Tensor get_patches_forward_cpu(const torch::Tensor &map, torch::Tensor &p
 
 // patches: NxCx(2*radius+1)x(2*radius+1)
 // points: Nx2
-torch::Tensor get_patches_backward_cpu(const torch::Tensor &d_patches, torch::Tensor &points, int64_t H, int64_t W)
-{
+torch::Tensor get_patches_backward_cpu(const torch::Tensor& d_patches, torch::Tensor& points, int64_t H, int64_t W) {
     namespace F = torch::nn::functional;
     using namespace torch::indexing;
 
@@ -106,21 +104,19 @@ torch::Tensor get_patches_backward_cpu(const torch::Tensor &d_patches, torch::Te
     return d_map;
 }
 
-torch::Tensor get_patches_forward(const torch::Tensor &map, torch::Tensor &points, int64_t kernel_size)
-{
+torch::Tensor get_patches_forward(const torch::Tensor& map, torch::Tensor& points, int64_t kernel_size) {
     if (map.device() == torch::kCPU)
         return get_patches_forward_cpu(map, points, kernel_size);
     else
     {
         // if (kernel_size < 4)
-            return get_patches_forward_cuda(map, points, kernel_size);
+        return get_patches_forward_cuda(map, points, kernel_size);
         // else
         //     return get_patches_forward_cuda1(map, points, kernel_size);
     }
 }
 
-torch::Tensor get_patches_backward(const torch::Tensor &d_patches, torch::Tensor &points, int64_t H, int64_t W)
-{
+torch::Tensor get_patches_backward(const torch::Tensor& d_patches, torch::Tensor& points, int64_t H, int64_t W) {
     if (d_patches.device() == torch::kCPU)
         return get_patches_backward_cpu(d_patches, points, H, W);
     else
@@ -135,8 +131,7 @@ torch::Tensor get_patches_backward(const torch::Tensor &d_patches, torch::Tensor
 //     m.def("get_patches_backward", &get_patches_backward, "get_patches backward");
 // }
 
-TORCH_LIBRARY(custom_ops, m)
-{
+TORCH_LIBRARY(custom_ops, m) {
     m.def("get_patches_forward", get_patches_forward);
     m.def("get_patches_backward", get_patches_backward);
 }

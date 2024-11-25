@@ -32,6 +32,7 @@ set(ALIKED_SOURCES
         src/ALIKED.cpp
         src/DKD.cpp
         src/SDDH.cpp
+        src/blocks.cpp
 )
 
 set(CUSTOM_OPS_SOURCES
@@ -40,11 +41,14 @@ set(CUSTOM_OPS_SOURCES
 )
 
 # Custom CUDA operations
-add_library(custom_ops SHARED ${CUSTOM_OPS_SOURCES})
+cuda_add_library(custom_ops SHARED ${CUSTOM_OPS_SOURCES})
 
+# Link custom_ops with CUDA and Torch libraries
 target_link_libraries(custom_ops
         ${TORCH_LIBRARIES}
         ${CUDA_LIBRARIES}
+        ${CUDA_CUDA_LIBRARY}
+        ${CUDA_CUDART_LIBRARY}
 )
 
 set_target_properties(custom_ops PROPERTIES
@@ -63,16 +67,22 @@ target_include_directories(aliked PUBLIC
         $<INSTALL_INTERFACE:include>
 )
 
+# Link aliked with all required libraries
 target_link_libraries(aliked PUBLIC
+        custom_ops
         ${TORCH_LIBRARIES}
         ${OpenCV_LIBS}
-        custom_ops
+        ${CUDA_LIBRARIES}
+        ${CUDA_CUDA_LIBRARY}
+        ${CUDA_CUDART_LIBRARY}
 )
 
 # Example executable
 add_executable(aliked_example examples/main.cpp)
 target_link_libraries(aliked_example
         aliked
+        custom_ops  # Add explicit link to custom_ops
         ${TORCH_LIBRARIES}
         ${OpenCV_LIBS}
+        ${CUDA_LIBRARIES}
 )

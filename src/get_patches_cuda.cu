@@ -8,10 +8,10 @@
 
 namespace F = torch::nn::functional;
 
-#define CHECK_CUDA(x) TORCH_CHECK(x.type().is_cuda(), #x " must be a CUDA tensor")
+#define CHECK_CUDA(x)       TORCH_CHECK(x.type().is_cuda(), #x " must be a CUDA tensor")
 #define CHECK_CONTIGUOUS(x) TORCH_CHECK(x.is_contiguous(), #x " must be contiguous")
-#define CHECK_INPUT(x)                                                                                                                               \
-    CHECK_CUDA(x);                                                                                                                                   \
+#define CHECK_INPUT(x) \
+    CHECK_CUDA(x);     \
     CHECK_CONTIGUOUS(x)
 
 // CUDA: grid stride looping
@@ -21,8 +21,8 @@ namespace F = torch::nn::functional;
 // iteration of the loop where _i_n_d_e_x += blockDim.x * gridDim.x can be
 // greater than INT_MAX.  But in that case _i_n_d_e_x >= n, so there are no
 // further iterations and the overflowed value in i=_i_n_d_e_x is not used.
-#define CUDA_KERNEL_LOOP_TYPE(i, n, index_type)                                                                                                      \
-    int64_t _i_n_d_e_x = blockIdx.x * blockDim.x + threadIdx.x;                                                                                      \
+#define CUDA_KERNEL_LOOP_TYPE(i, n, index_type)                 \
+    int64_t _i_n_d_e_x = blockIdx.x * blockDim.x + threadIdx.x; \
     for (index_type i = _i_n_d_e_x; _i_n_d_e_x < (n); _i_n_d_e_x += blockDim.x * gridDim.x, i = _i_n_d_e_x)
 
 #define CUDA_KERNEL_LOOP(i, n) CUDA_KERNEL_LOOP_TYPE(i, n, int)
@@ -32,8 +32,7 @@ namespace F = torch::nn::functional;
 constexpr int CUDA_NUM_THREADS = 16;
 
 // CUDA: number of blocks for threads.
-inline int GET_BLOCKS(const int64_t N, const int64_t max_threads_per_block = CUDA_NUM_THREADS)
-{
+inline int GET_BLOCKS(const int64_t N, const int64_t max_threads_per_block = CUDA_NUM_THREADS) {
     TORCH_INTERNAL_ASSERT(N > 0, "CUDA kernel launch blocks must be positive, but got N=", N);
     constexpr int64_t max_int = std::numeric_limits<int>::max();
 
@@ -47,23 +46,21 @@ inline int GET_BLOCKS(const int64_t N, const int64_t max_threads_per_block = CUD
 template <typename scalar_t>
 C10_LAUNCH_BOUNDS_1(CUDA_NUM_THREADS)
 __global__ void get_patches_forward_cuda_kernel(const int64_t n,
-                                                const scalar_t *p_map,   // Cx(H+2*radius)x(W+2*radius)
-                                                const int64_t *p_points, // Nx2
+                                                const scalar_t* p_map,   // Cx(H+2*radius)x(W+2*radius)
+                                                const int64_t* p_points, // Nx2
                                                 int64_t n_input_plane, int64_t input_height, int64_t input_width, int64_t n_points,
                                                 int64_t pad_left_top, int64_t pad_right_bottom, int64_t kernel_size,
-                                                scalar_t *p_patches // NxCxkernel_sizexkernel_size
-)
-{
-    CUDA_KERNEL_LOOP(index, n)
-    {
+                                                scalar_t* p_patches // NxCxkernel_sizexkernel_size
+) {
+    CUDA_KERNEL_LOOP(index, n) {
         int64_t n_out = index % n_points;       // point idx
         int64_t channel_idx = index / n_points; // channel idx
 
         int64_t w_in = *(p_points + 2 * n_out);
         int64_t h_in = *(p_points + 2 * n_out + 1);
 
-        const scalar_t *im = p_map + (channel_idx * input_height + h_in) * input_width + w_in;
-        scalar_t *dst_patches = p_patches + (n_out * n_input_plane + channel_idx) * kernel_size * kernel_size;
+        const scalar_t* im = p_map + (channel_idx * input_height + h_in) * input_width + w_in;
+        scalar_t* dst_patches = p_patches + (n_out * n_input_plane + channel_idx) * kernel_size * kernel_size;
 
         // copy data
         for (int64_t i = 0; i < kernel_size; ++i)
@@ -84,10 +81,9 @@ __global__ void get_patches_forward_cuda_kernel(const int64_t n,
 template <typename scalar_t>
 __global__ void
 get_patches_forward_cuda_kernel1(const torch::PackedTensorAccessor32<scalar_t, 3, torch::RestrictPtrTraits> map_pad, // Cx(H+2*radius)x(W+2*radius)
-                                const torch::PackedTensorAccessor32<int64_t, 2, torch::RestrictPtrTraits> points,   // Nx2
-                                torch::PackedTensorAccessor32<scalar_t, 4, torch::RestrictPtrTraits> patches,       // NxCxkernel_sizexkernel_size
-                                int64_t kernel_size)
-{
+                                 const torch::PackedTensorAccessor32<int64_t, 2, torch::RestrictPtrTraits> points,   // Nx2
+                                 torch::PackedTensorAccessor32<scalar_t, 4, torch::RestrictPtrTraits> patches,       // NxCxkernel_sizexkernel_size
+                                 int64_t kernel_size) {
     const int in = blockIdx.x * blockDim.x + threadIdx.x;
     const int N = points.size(0);
     const int C = map_pad.size(0);
@@ -116,8 +112,7 @@ __global__ void
 get_patches_backward_cuda_kernel(torch::PackedTensorAccessor32<scalar_t, 3, torch::RestrictPtrTraits> d_map_pad,       // Cx(H+2*radius)x(W+2*radius)
                                  const torch::PackedTensorAccessor32<int64_t, 2, torch::RestrictPtrTraits> points,     // Nx2
                                  const torch::PackedTensorAccessor32<scalar_t, 4, torch::RestrictPtrTraits> d_patches, // NxCxkernel_sizexkernel_size
-                                 int64_t kernel_size)
-{
+                                 int64_t kernel_size) {
     const int in = blockIdx.x * blockDim.x + threadIdx.x;
     const int N = points.size(0);
     const int C = d_map_pad.size(0);
@@ -141,8 +136,7 @@ get_patches_backward_cuda_kernel(torch::PackedTensorAccessor32<scalar_t, 3, torc
     }
 }
 
-torch::Tensor get_patches_forward_cuda(const torch::Tensor &input, torch::Tensor &points, int64_t kernel_size)
-{
+torch::Tensor get_patches_forward_cuda(const torch::Tensor& input, torch::Tensor& points, int64_t kernel_size) {
     CHECK_INPUT(input);
     CHECK_INPUT(points);
 
@@ -166,8 +160,7 @@ torch::Tensor get_patches_forward_cuda(const torch::Tensor &input, torch::Tensor
     auto stream = at::cuda::getCurrentCUDAStream();
     AT_DISPATCH_FLOATING_TYPES(input.type(), "get_patches_forward_cuda",
                                (
-                                   [&]
-                                   {
+                                   [&] {
                                        get_patches_forward_cuda_kernel<scalar_t><<<GET_BLOCKS(num_kernels), CUDA_NUM_THREADS, 0, stream>>>(
                                            num_kernels, input.data_ptr<scalar_t>(), points.data_ptr<int64_t>(), n_input_plane, input_height,
                                            input_width, n_points, pad_left_top, pad_right_bottom, kernel_size, patches.data_ptr<scalar_t>());
@@ -178,8 +171,7 @@ torch::Tensor get_patches_forward_cuda(const torch::Tensor &input, torch::Tensor
     return patches;
 }
 
-torch::Tensor get_patches_forward_cuda1(const torch::Tensor &map, torch::Tensor &points, int64_t kernel_size)
-{
+torch::Tensor get_patches_forward_cuda1(const torch::Tensor& map, torch::Tensor& points, int64_t kernel_size) {
     CHECK_INPUT(map);
     CHECK_INPUT(points);
 
@@ -205,8 +197,7 @@ torch::Tensor get_patches_forward_cuda1(const torch::Tensor &map, torch::Tensor 
     const int blocks = (N + threads - 1) / threads;
     AT_DISPATCH_FLOATING_TYPES(map_pad.type(), "get_patches_forward_cuda",
                                (
-                                   [&]
-                                   {
+                                   [&] {
                                        get_patches_forward_cuda_kernel1<scalar_t>
                                            <<<blocks, threads>>>(map_pad.packed_accessor32<scalar_t, 3, torch::RestrictPtrTraits>(),
                                                                  points.packed_accessor32<int64_t, 2, torch::RestrictPtrTraits>(),
@@ -222,8 +213,7 @@ torch::Tensor get_patches_forward_cuda1(const torch::Tensor &map, torch::Tensor 
     return patches;
 }
 
-torch::Tensor get_patches_backward_cuda(const torch::Tensor &d_patches, torch::Tensor &points, int64_t H, int64_t W)
-{
+torch::Tensor get_patches_backward_cuda(const torch::Tensor& d_patches, torch::Tensor& points, int64_t H, int64_t W) {
     CHECK_INPUT(d_patches);
     CHECK_INPUT(points);
 
@@ -245,8 +235,7 @@ torch::Tensor get_patches_backward_cuda(const torch::Tensor &d_patches, torch::T
     const int blocks = (N + threads - 1) / threads;
     AT_DISPATCH_FLOATING_TYPES(d_map_pad.type(), "get_patches_backward_cuda",
                                (
-                                   [&]
-                                   {
+                                   [&] {
                                        get_patches_backward_cuda_kernel<scalar_t>
                                            <<<blocks, threads>>>(d_map_pad.packed_accessor32<scalar_t, 3, torch::RestrictPtrTraits>(),
                                                                  points.packed_accessor32<int64_t, 2, torch::RestrictPtrTraits>(),
