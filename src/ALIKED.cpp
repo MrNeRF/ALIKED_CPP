@@ -115,9 +115,9 @@ ALIKED::extract_dense_map(torch::Tensor image) {
     auto feature_map = torch::nn::functional::normalize(x1234,
                                                         torch::nn::functional::NormalizeFuncOptions().p(2).dim(1));
 
-    // Unpad
-    feature_map = padder.unpad(feature_map);
-    score_map = padder.unpad(score_map);
+// Unpad the tensors
+    feature_map = padder.unpad(feature_map).contiguous();
+    score_map = padder.unpad(score_map).contiguous();
 
     return std::make_tuple(feature_map, score_map);
 }

@@ -80,8 +80,8 @@ cv::Mat plot_matches(const cv::Mat& image0, const cv::Mat& image1,
     cv::Mat out(H, W, CV_8UC3, cv::Scalar(255, 255, 255));
     out0.copyTo(out(cv::Rect(0, 0, W0, H0)));
     out1.copyTo(out(cv::Rect(W0, 0, W1, H1)));
-    
-    auto matches_a = matches.cpu();
+
+    auto matches_a = matches.to(torch::kLong).cpu();
     auto kpts0_a = kpts0.cpu();
     auto kpts1_a = kpts1.cpu();
     auto matches_accessor = matches_a.accessor<int64_t, 2>();
