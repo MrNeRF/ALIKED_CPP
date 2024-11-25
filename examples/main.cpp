@@ -33,78 +33,79 @@ private:
     std::vector<std::string> images_;
 };
 
-torch::Tensor mnn_matcher(const torch::Tensor& desc1, const torch::Tensor& desc2) {
-    auto sim = torch::matmul(desc1, desc2.transpose(0, 1));
-    sim.masked_fill_(sim < 0.75, 0);
-    
-    auto nn12 = std::get<1>(sim.max(1));
-    auto nn21 = std::get<1>(sim.max(0));
-    
-    auto ids1 = torch::arange(sim.size(0), sim.options());
-    auto mask = ids1 == nn21.index({nn12});
-    
-    auto matches_ids1 = torch::masked_select(ids1, mask);
-    auto matches_ids2 = torch::masked_select(nn12, mask);
-    
-    return torch::stack({matches_ids1, matches_ids2}, 1);
-}
+class SimpleTracker {
+public:
+    SimpleTracker() : pts_prev_(), desc_prev_() {}
 
-cv::Mat plot_keypoints(const cv::Mat& image, const torch::Tensor& kpts,
-                      int radius = 2, const cv::Scalar& color = cv::Scalar(0, 0, 255)) {
-    cv::Mat out = image.clone();
-    
-    auto kpts_a = kpts.round().to(torch::kInt64).cpu();
-    auto kpts_accessor = kpts_a.accessor<int64_t, 2>();
-    
-    for (int i = 0; i < kpts_a.size(0); i++) {
-        cv::Point center(kpts_accessor[i][0], kpts_accessor[i][1]);
-        cv::circle(out, center, radius, color, -1, cv::LINE_4);
+    // Update function
+    std::tuple<cv::Mat, int> update(const cv::Mat& img, const torch::Tensor& pts, const torch::Tensor& desc) {
+        cv::Mat out = img.clone();
+        int N_matches = 0;
+
+        if (!pts_prev_.defined()) {
+            // First frame: Initialize points and descriptors
+            pts_prev_ = pts.clone();
+            desc_prev_ = desc.clone();
+
+            // Draw keypoints
+            for (int i = 0; i < pts.size(0); ++i) {
+                cv::Point2f p1(pts[i][0].item<float>(), pts[i][1].item<float>());
+                cv::circle(out, p1, 1, cv::Scalar(0, 0, 255), -1, cv::LINE_AA);
+            }
+        } else {
+            // Compute matches
+            auto matches = mnn_matcher(desc_prev_, desc);
+            N_matches = matches.size(0);
+
+            // Draw matches
+            for (int i = 0; i < N_matches; ++i) {
+                int idx0 = matches[i][0].item<int>();
+                int idx1 = matches[i][1].item<int>();
+
+                cv::Point2f pt1(pts_prev_[idx0][0].item<float>(), pts_prev_[idx0][1].item<float>());
+                cv::Point2f pt2(pts[idx1][0].item<float>(), pts[idx1][1].item<float>());
+                cv::line(out, pt1, pt2, cv::Scalar(0, 255, 0), 1, cv::LINE_AA);
+                cv::circle(out, pt2, 1, cv::Scalar(0, 0, 255), -1, cv::LINE_AA);
+            }
+
+            // Update previous points and descriptors
+            pts_prev_ = pts.clone();
+            desc_prev_ = desc.clone();
+        }
+
+        return {out, N_matches};
     }
-    return out;
-}
 
-cv::Mat plot_matches(const cv::Mat& image0, const cv::Mat& image1,
-                    const torch::Tensor& kpts0, const torch::Tensor& kpts1,
-                    const torch::Tensor& matches,
-                    int radius = 2,
-                    const cv::Scalar& color = cv::Scalar(255, 0, 0),
-                    const cv::Scalar& mcolor = cv::Scalar(0, 255, 0)) {
-    cv::Mat out0 = plot_keypoints(image0, kpts0, radius, color);
-    cv::Mat out1 = plot_keypoints(image1, kpts1, radius, color);
-    
-    int H0 = image0.rows, W0 = image0.cols;
-    int H1 = image1.rows, W1 = image1.cols;
-    int H = std::max(H0, H1);
-    int W = W0 + W1;
-    
-    cv::Mat out(H, W, CV_8UC3, cv::Scalar(255, 255, 255));
-    out0.copyTo(out(cv::Rect(0, 0, W0, H0)));
-    out1.copyTo(out(cv::Rect(W0, 0, W1, H1)));
+private:
+    // Nearest neighbor matcher
+    torch::Tensor mnn_matcher(const torch::Tensor& desc1, const torch::Tensor& desc2) {
+        // Compute similarity matrix
+        auto sim = torch::matmul(desc1, desc2.t());
+        sim = torch::where(sim < 0.9, torch::zeros_like(sim), sim);
 
-    auto matches_a = matches.to(torch::kLong).cpu();
-    auto kpts0_a = kpts0.cpu();
-    auto kpts1_a = kpts1.cpu();
-    auto matches_accessor = matches_a.accessor<int64_t, 2>();
-    
-    for (int i = 0; i < matches_a.size(0); i++) {
-        int idx0 = matches_accessor[i][0];
-        int idx1 = matches_accessor[i][1];
-        
-        cv::Point2f pt0(kpts0_a[idx0][0].item<float>(), kpts0_a[idx0][1].item<float>());
-        cv::Point2f pt1(kpts1_a[idx1][0].item<float>() + W0, kpts1_a[idx1][1].item<float>());
-        
-        cv::line(out, pt0, pt1, mcolor, 1, cv::LINE_AA);
+        // Nearest neighbors
+        auto nn12 = std::get<1>(torch::max(sim, 1)); // Nearest in desc2 for each desc1
+        auto nn21 = std::get<1>(torch::max(sim, 0)); // Nearest in desc1 for each desc2
+
+        // Mask to enforce mutual nearest neighbors
+        auto ids1 = torch::arange(sim.size(0), torch::TensorOptions().device(sim.device()));
+        auto mask = (ids1 == nn21.index({nn12}));
+        auto matches = torch::stack({ids1.masked_select(mask), nn12.masked_select(mask)}, 1);
+
+        return matches;
     }
-    
-    return out;
-}
+
+    torch::Tensor pts_prev_;
+    torch::Tensor desc_prev_;
+};
+
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <image_dir> [options]" << std::endl;
         return 1;
     }
-    
+
     // Parse command line arguments
     std::string input_dir = argv[1];
     std::string model_name = "aliked-n32";
@@ -112,63 +113,90 @@ int main(int argc, char* argv[]) {
     int top_k = -1;
     float scores_th = 0.2f;
     int n_limit = 5000;
-    
+
     // Initialize model
     std::cout << "Initializing ALIKED model..." << std::endl;
     auto model = std::make_shared<ALIKED>(model_name, device, top_k, scores_th, n_limit);
-    
+
     // Load images
     ImageLoader image_loader(input_dir);
     if (image_loader.size() < 2) {
         std::cerr << "Need at least 2 images in the input directory" << std::endl;
         return 1;
     }
-    
-    // Process reference image
-    cv::Mat img_ref = image_loader[0];
-    cv::Mat img_rgb_ref;
-    cv::cvtColor(img_ref, img_rgb_ref, cv::COLOR_BGR2RGB);
-    
-    auto pred_ref = model->run(img_rgb_ref);
-    auto kpts_ref = pred_ref.at("keypoints");
-    auto desc_ref = pred_ref.at("descriptors");
 
+    // Initialize tracker
+    SimpleTracker tracker;
+
+    // Display prompt
     std::cout << "Press 'space' to start. \nPress 'q' or 'ESC' to stop!" << std::endl;
-    
-    for (size_t i = 1; i < image_loader.size(); i++) {
+
+    for (size_t i = 0; i < image_loader.size(); i++) {
         cv::Mat img = image_loader[i];
         if (img.empty()) break;
-        
+
+        // Convert image to RGB
         cv::Mat img_rgb;
         cv::cvtColor(img, img_rgb, cv::COLOR_BGR2RGB);
-        
-        auto pred = model->run(img_rgb);
-        auto kpts = pred.at("keypoints");
-        auto desc = pred.at("descriptors");
 
-        auto matches = mnn_matcher(desc_ref, desc);
-        
-        std::string status = "matches/keypoints: " + 
-                            std::to_string(matches.size(0)) + "/" + 
-                            std::to_string(kpts.size(0));
-        
-        cv::Mat vis_img = plot_matches(img_ref, img, kpts_ref, kpts, matches);
-        
-        cv::putText(vis_img, "Press 'q' or 'ESC' to stop.", 
-                    cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, 
+        // Run model
+        auto pred = model->run(img_rgb);
+        auto kpts = pred.at("keypoints").cpu();
+        auto desc = pred.at("descriptors").cpu();
+
+        // Normalize and scale keypoints to pixel coordinates
+        int img_width = img.cols;
+        int img_height = img.rows;
+
+        kpts = (kpts + 1.0) * 0.5; // Normalize to [0, 1]
+        kpts.select(1, 0).mul_(img_width);  // Scale x-coordinates
+        kpts.select(1, 1).mul_(img_height); // Scale y-coordinates
+
+        // Debugging: Check keypoints
+        std::cout << "Keypoints tensor: " << kpts << std::endl;
+
+        // Plot keypoints on the current image
+        for (int j = 0; j < kpts.size(0); ++j) {
+            float x = kpts[j][0].item<float>();
+            float y = kpts[j][1].item<float>();
+
+            // Validate coordinates
+            if (x >= 0 && x < img_width && y >= 0 && y < img_height) {
+                std::cout << "Plotting keypoint: (" << x << ", " << y << ")" << std::endl;
+                cv::circle(img, cv::Point2f(x, y), 1, cv::Scalar(0, 0, 255), -1, cv::LINE_AA);
+            } else {
+                std::cerr << "Keypoint out of bounds: (" << x << ", " << y << ")" << std::endl;
+            }
+        }
+
+        // Update tracker
+        cv::Mat vis_img;
+        int N_matches;
+        std::tie(vis_img, N_matches) = tracker.update(img, kpts, desc);
+
+        // Status message
+        std::string status = "matches/keypoints: " +
+                             std::to_string(N_matches) + "/" +
+                             std::to_string(kpts.size(0));
+
+        // Overlay status and instructions
+        cv::putText(vis_img, "Press 'q' or 'ESC' to stop.",
+                    cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1,
                     cv::Scalar(0, 0, 255), 2, cv::LINE_AA);
-        
+
         cv::namedWindow(model_name);
         cv::setWindowTitle(model_name, model_name + ": " + status);
         cv::imshow(model_name, vis_img);
-        
+
+        // Handle user input
         char c = cv::waitKey(0);
-        if (c == 'q' || c == 27) break;
+        if (c == 'q' || c == 27) break; // Quit on 'q' or 'ESC'
     }
-    
+
+
     std::cout << "Finished!" << std::endl;
     std::cout << "Press any key to exit!" << std::endl;
-    
+
     cv::destroyAllWindows();
     return 0;
 }
