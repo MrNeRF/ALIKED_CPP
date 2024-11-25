@@ -15,7 +15,7 @@ private:
     torch::nn::Conv2d regular_conv_{nullptr};
     int padding_;
     int groups_ = 1;
-    int mask_offset_ = 0;
+    int mask_offset_ = 1;
 };
 
 class ConvBlock : public torch::nn::Module {

@@ -161,11 +161,35 @@ torch::Tensor DeformableConv2d::forward(torch::Tensor x) {
 
     // Offset and mask
     auto offset = offset_conv_->forward(x);
-    auto mask = torch::Tensor();
+    auto mask = torch::zeros(
+            {offset.size(0), 1}, // Shape: [batch_size, 1, height, width]
+            torch::TensorOptions().device(offset.device()).dtype(offset.dtype()) // Match device and dtype
+    );
 
-    // Clamp offset values
-    offset = offset.clamp(-max_offset, max_offset);
+    if (!offset.defined()) {
+        std::cerr << "Error: Offset is undefined!" << std::endl;
+    }
+    if (!offset_conv_) {
+        std::cerr << "Error: offset_conv_ is not initialized!" << std::endl;
+    }
+    if (!regular_conv_) {
+        std::cerr << "Error: regular_conv_ is not initialized!" << std::endl;
+    }
+    std::cout << "Input shape: " << x.sizes() << std::endl;
+    std::cout << "Offset shape: " << offset.sizes() << std::endl;
+    if (mask.defined()) {
+        std::cout << "Mask shape: " << mask.sizes() << std::endl;
+    } else {
+        std::cout << "Mask is undefined!" << std::endl;
+    }
 
+    if (!regular_conv_->bias.defined()) {
+        regular_conv_->bias = torch::zeros(
+                {regular_conv_->weight.size(0)}, // Number of output channels
+                torch::TensorOptions().device(x.device()).dtype(x.dtype()) // Match input's device and dtype
+        );
+        std::cout << "Bias initialized as zeros with shape: " << regular_conv_->bias.sizes() << std::endl;
+    }
     // Deformable convolution
     return vision::ops::deform_conv2d(
             x,                          // input
