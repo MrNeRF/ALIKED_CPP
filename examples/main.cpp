@@ -107,7 +107,7 @@ int main(int argc, char* argv[]) {
     
     // Parse command line arguments
     std::string input_dir = argv[1];
-    std::string model_name = "aliked-n16rot";
+    std::string model_name = "aliked-n32";
     std::string device = "cuda";
     int top_k = -1;
     float scores_th = 0.2f;

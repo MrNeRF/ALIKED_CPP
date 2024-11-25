@@ -1,4 +1,5 @@
 #include "ALIKED.hpp"
+#include <torch/torch.h>
 #include "get_patches.hpp"
 
 using namespace torch::indexing;
@@ -77,7 +78,7 @@ SDDH::forward(torch::Tensor x, std::vector<torch::Tensor>& keypoints) {
         {
             // Get patches using custom op
             auto kptsi_wh_long = kptsi_wh.to(torch::kLong);
-            patch = custom_ops::get_patches_forward(xi, kptsi_wh_long, kernel_size_);
+            patch = custom_ops::get_patches_forward(xi, kptsi_wh_long, static_cast<long>(kernel_size_));
         } else
         {
             auto kptsi_wh_long = kptsi_wh.to(torch::kLong);

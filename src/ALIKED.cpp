@@ -5,6 +5,45 @@
 
 namespace fs = std::filesystem;
 
+namespace {
+    class Model : public torch::nn::Module {
+        static std::vector<char> get_the_bytes(const std::string& filename) {
+            std::ifstream input(filename, std::ios::binary);
+            std::vector<char> bytes(
+                    (std::istreambuf_iterator<char>(input)),
+                    (std::istreambuf_iterator<char>()));
+
+            input.close();
+            return bytes;
+        }
+
+    public:
+        void load_parameters(const std::string& pt_pth) {
+            std::vector<char> f = Model::get_the_bytes(pt_pth);
+            c10::Dict<at::IValue, at::IValue> weights = torch::pickle_load(f).toGenericDict();
+
+            const torch::OrderedDict<std::string, at::Tensor> &model_params = this->named_parameters();
+            std::vector<std::string> param_names;
+            for (auto const &w: model_params) {
+                param_names.push_back(w.key());
+            }
+
+            torch::NoGradGuard no_grad;
+            for (auto const &w: weights) {
+                std::string name = w.key().toStringRef();
+                at::Tensor param = w.value().toTensor();
+
+                if (std::find(param_names.begin(), param_names.end(), name) != param_names.end()) {
+                    model_params.find(name)->copy_(param);
+                } else {
+                    std::cout << name << " does not exist among model parameters." << std::endl;
+                };
+
+            }
+        }
+    };
+}
+
 ALIKED::ALIKED(const std::string& model_name,
                const std::string& device,
                int top_k,
@@ -200,7 +239,7 @@ ALIKED::run(cv::Mat& img_rgb) {
 }
 
 void ALIKED::load_weights(const std::string& model_name) {
-    std::string model_path = ("../models" + (model_name + ".pth"));
+    std::string model_path = ("../models/" + (model_name + ".pt"));
 
     if (!fs::exists(model_path))
     {
@@ -212,45 +251,46 @@ void ALIKED::load_weights(const std::string& model_name) {
     try
     {
         // Load the PyTorch saved model
-        torch::serialize::InputArchive archive;
-        archive.load_from(model_path);
-
+        //torch::serialize::InputArchive archive;
+        //archive.load_from(model_path);
+        ::Model model;
+        model.load_parameters(model_path);
         // Load into the model
-        torch::NoGradGuard no_grad;
-        for (const auto& key : archive.keys())
-        {
-            torch::Tensor tensor;
-            archive.read(key, tensor);
+        //torch::NoGradGuard no_grad;
+        //for (const auto& key : archive.keys())
+        //{
+        //    torch::Tensor tensor;
+        //    archive.read(key, tensor);
 
-            // Some PyTorch state dict keys might need to be adjusted for C++
-            std::string cpp_key = key;
-            if (key.substr(0, 7) == "module.")
-            {
-                cpp_key = key.substr(7); // Remove "module." prefix if exists
-            }
+        //    // Some PyTorch state dict keys might need to be adjusted for C++
+        //    std::string cpp_key = key;
+        //    if (key.substr(0, 7) == "module.")
+        //    {
+        //        cpp_key = key.substr(7); // Remove "module." prefix if exists
+        //    }
 
-            try
-            {
-                auto* param = this->named_parameters(true).find(cpp_key);
-                if (param != nullptr)
-                {
-                    param->copy_(tensor);
-                } else
-                {
-                    auto* buffer = this->named_buffers(true).find(cpp_key);
-                    if (buffer != nullptr)
-                    {
-                        buffer->copy_(tensor);
-                    } else
-                    {
-                        std::cout << "Warning: Parameter " << cpp_key << " not found in model" << std::endl;
-                    }
-                }
-            } catch (const std::exception& e)
-            {
-                std::cout << "Error loading parameter " << cpp_key << ": " << e.what() << std::endl;
-            }
-        }
+        //    try
+        //    {
+        //        auto* param = this->named_parameters(true).find(cpp_key);
+        //        if (param != nullptr)
+        //        {
+        //            param->copy_(tensor);
+        //        } else
+        //        {
+        //            auto* buffer = this->named_buffers(true).find(cpp_key);
+        //            if (buffer != nullptr)
+        //            {
+        //                buffer->copy_(tensor);
+        //            } else
+        //            {
+        //                std::cout << "Warning: Parameter " << cpp_key << " not found in model" << std::endl;
+        //            }
+        //        }
+        //    } catch (const std::exception& e)
+        //    {
+        //        std::cout << "Error loading parameter " << cpp_key << ": " << e.what() << std::endl;
+        //    }
+        //}
     } catch (const std::exception& e)
     {
         throw std::runtime_error("Error loading model: " + std::string(e.what()));

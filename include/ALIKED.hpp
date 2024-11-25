@@ -6,6 +6,8 @@
 #include <torch/torch.h>
 
 #include <map>
+#include <string>
+#include <fstream>
 #include <memory>
 
 struct AlikedConfig {

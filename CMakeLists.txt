@@ -45,8 +45,8 @@ set(SOURCES
         src/ALIKED.cpp
         src/DKD.cpp
         src/get_patches.cpp
-        src/get_patches_cuda.cu
         src/SDDH.cpp
+        src/get_patches_cuda.cu
 )
 
 # --------------------------------------
@@ -63,6 +63,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
         CXX_STANDARD_REQUIRED ON
 )
 
+set_source_files_properties(src/get_patches_cuda.cu PROPERTIES LANGUAGE CUDA)
 target_include_directories(${PROJECT_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
 # Torch setup
