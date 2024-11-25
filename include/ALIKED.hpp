@@ -75,6 +75,9 @@ private:
     void init_layers(const std::string& model_name);
     void load_weights(const std::string& model_name);
 
+    // Utility functions to import weigths from Python
+    void load_parameters(const std::string& pt_pth);   static std::vector<char> get_the_bytes(const std::string& filename);
+
     // Feature extraction layers
     torch::nn::AvgPool2d pool2_{nullptr}, pool4_{nullptr};
     torch::nn::Sequential block1_{nullptr}, block2_{nullptr},

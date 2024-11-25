@@ -25,8 +25,7 @@ ConvBlock::ConvBlock(int in_channels, int out_channels,
                 3,
                 1,
                 1,
-                false,
-                mask);
+                false);
         deform1_ = register_module("conv1", conv1);
 
         auto conv2 = std::make_shared<DeformableConv2d>(
@@ -35,8 +34,7 @@ ConvBlock::ConvBlock(int in_channels, int out_channels,
                 3,
                 1,
                 1,
-                false,
-                mask);
+                false);
         deform2_ = register_module("conv2", conv2);
     }
 
@@ -56,20 +54,20 @@ torch::Tensor ConvBlock::forward(torch::Tensor x) {
 }
 
 ResBlock::ResBlock(int inplanes, int planes, int stride,
-                   const std::shared_ptr<torch::nn::Module>& downsample,
-                   const std::string& conv_type, bool mask)
+                   const torch::nn::Conv2d& downsample,
+                   const std::string& conv_type)
     : downsample_(downsample) {
 
     if (conv_type == "conv") {
 
         auto conv1 = torch::nn::Conv2d((torch::nn::Conv2dOptions(inplanes, planes, 3)
-                .stride(1)
+                .stride(stride)
                 .padding(1)
                 .bias(false)));
         conv1_ = register_module("conv1", conv1 );
 
-        auto conv2 = torch::nn::Conv2d((torch::nn::Conv2dOptions(inplanes, planes, 3)
-                .stride(1)
+        auto conv2 = torch::nn::Conv2d((torch::nn::Conv2dOptions(planes, planes, 3)
+                .stride(stride)
                 .padding(1)
                 .bias(false)));
         conv2_ = register_module("conv2", conv2);
@@ -81,18 +79,16 @@ ResBlock::ResBlock(int inplanes, int planes, int stride,
                 3,
                 1,
                 1,
-                false,
-                mask);
+                false);
         deform1_ = register_module("conv1", conv1);
 
         auto conv2 = std::make_shared<DeformableConv2d>(
-                inplanes,
+                planes,
                 planes,
                 3,
                 1,
                 1,
-                false,
-                mask);
+                false);
         deform2_ = register_module("conv2", conv2);
     }
 
@@ -137,14 +133,10 @@ torch::Tensor ResBlock::forward(torch::Tensor x) {
 }
 
 DeformableConv2d::DeformableConv2d(int in_channels, int out_channels, int kernel_size, int stride, int padding,
-                                   bool bias, bool mask) {
+                                   bool bias) {
 
     padding_ = padding;
-    mask_ = mask;
-    kernel_size_ = kernel_size;
-
-    // 3 * kernel_size * kernel_size if mask else 2 * kernel_size * kernel_size
-    int channel_num = mask ? 3 * kernel_size * kernel_size : 2 * kernel_size * kernel_size;
+    const int channel_num = 2 * kernel_size * kernel_size;
 
     // Register offset conv
     offset_conv_ = register_module("offset_conv",
@@ -169,17 +161,8 @@ torch::Tensor DeformableConv2d::forward(torch::Tensor x) {
     auto out = offset_conv_->forward(x);
     torch::Tensor offset, mask;
 
-    if (mask_) {
-        // Split into offset and mask
-        auto chunks = out.chunk(3, 1);
-        auto o1 = chunks[0];
-        auto o2 = chunks[1];
-        mask = torch::sigmoid(chunks[2]);
-        offset = torch::cat({o1, o2}, 1);
-    } else {
-        offset = out;
-        mask = torch::Tensor();
-    }
+    offset = out;
+    mask = torch::Tensor();
 
     // Clamp offset values
     offset = offset.clamp(-max_offset, max_offset);
@@ -196,6 +179,6 @@ torch::Tensor DeformableConv2d::forward(torch::Tensor x) {
             1, 1, // dilation
             groups_,                    // groups
             mask_offset_              , // mask
-            mask_
+           false
     );
 }

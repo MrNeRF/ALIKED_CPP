@@ -5,45 +5,6 @@
 
 namespace fs = std::filesystem;
 
-namespace {
-    class Model : public torch::nn::Module {
-        static std::vector<char> get_the_bytes(const std::string& filename) {
-            std::ifstream input(filename, std::ios::binary);
-            std::vector<char> bytes(
-                    (std::istreambuf_iterator<char>(input)),
-                    (std::istreambuf_iterator<char>()));
-
-            input.close();
-            return bytes;
-        }
-
-    public:
-        void load_parameters(const std::string& pt_pth) {
-            std::vector<char> f = Model::get_the_bytes(pt_pth);
-            c10::Dict<at::IValue, at::IValue> weights = torch::pickle_load(f).toGenericDict();
-
-            const torch::OrderedDict<std::string, at::Tensor> &model_params = this->named_parameters();
-            std::vector<std::string> param_names;
-            for (auto const &w: model_params) {
-                param_names.push_back(w.key());
-            }
-
-            torch::NoGradGuard no_grad;
-            for (auto const &w: weights) {
-                std::string name = w.key().toStringRef();
-                at::Tensor param = w.value().toTensor();
-
-                if (std::find(param_names.begin(), param_names.end(), name) != param_names.end()) {
-                    model_params.find(name)->copy_(param);
-                } else {
-                    std::cout << name << " does not exist among model parameters." << std::endl;
-                };
-
-            }
-        }
-    };
-}
-
 ALIKED::ALIKED(const std::string& model_name,
                const std::string& device,
                int top_k,
@@ -53,8 +14,6 @@ ALIKED::ALIKED(const std::string& model_name,
     dim_{-1}
     {
 
-    // Initialize layers
-    init_layers(model_name);
 
     // Initialize DKD and descriptor head
     dkd_ = std::make_shared<DKD>(2, top_k, scores_th, n_limit);
@@ -62,6 +21,8 @@ ALIKED::ALIKED(const std::string& model_name,
     auto config = ALIKED_CFGS.at(model_name);
     desc_head_ = std::make_shared<SDDH>(config.dim, config.K, config.M);
 
+    // Initialize layers
+    init_layers(model_name);
     load_weights(model_name);
 
     this->to(device_);
@@ -82,23 +43,20 @@ void ALIKED::init_layers(const std::string& model_name) {
 
     // Block 2
     auto downsample2 = torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c1, config.c2, 1));
-    auto block2 = std::make_shared<ResBlock>(config.c1, config.c2, 1,
-                                             register_module("block2.downsample", downsample2),
-                                             "conv", false);
+    auto block2 = std::make_shared<ResBlock>(config.c1, config.c2, 1,downsample2,
+                                             "conv");
     register_module("block2", block2);
 
     // Block 3
     auto downsample3 = torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c2, config.c3, 1));
-    auto block3 = std::make_shared<ResBlock>(config.c2, config.c3, 1,
-                                             register_module("block3.downsample", downsample3),
-                                             "dcn", true);
+    auto block3 = std::make_shared<ResBlock>(config.c2, config.c3, 1,downsample3,
+                                             "dcn");
     register_module("block3", block3);
 
     // Block 4
     auto downsample4 = torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c3, config.c4, 1));
-    auto block4 = std::make_shared<ResBlock>(config.c3, config.c4, 1,
-                                             register_module("block4.downsample", downsample4),
-                                             "dcn", true);
+    auto block4 = std::make_shared<ResBlock>(config.c3, config.c4, 1, downsample4,
+                                             "dcn");
     register_module("block4", block4);
 
     // Convolution layers
@@ -248,8 +206,7 @@ void ALIKED::load_weights(const std::string& model_name) {
         // Load the PyTorch saved model
         //torch::serialize::InputArchive archive;
         //archive.load_from(model_path);
-        ::Model model;
-        model.load_parameters(model_path);
+        load_parameters(model_path);
         // Load into the model
         //torch::NoGradGuard no_grad;
         //for (const auto& key : archive.keys())
@@ -289,5 +246,39 @@ void ALIKED::load_weights(const std::string& model_name) {
     } catch (const std::exception& e)
     {
         throw std::runtime_error("Error loading model: " + std::string(e.what()));
+    }
+}
+
+std::vector<char> ALIKED::get_the_bytes(const std::string &filename) {
+    std::ifstream input(filename, std::ios::binary);
+    std::vector<char> bytes(
+            (std::istreambuf_iterator<char>(input)),
+            (std::istreambuf_iterator<char>()));
+
+    input.close();
+    return bytes;
+}
+
+void ALIKED::load_parameters(const std::string &pt_pth) {
+    std::vector<char> f = ALIKED::get_the_bytes(pt_pth);
+    c10::Dict<at::IValue, at::IValue> weights = torch::pickle_load(f).toGenericDict();
+
+    auto model_params = named_parameters();
+    std::vector<std::string> param_names;
+    for (auto const &w: model_params) {
+        param_names.push_back(w.key());
+    }
+
+    torch::NoGradGuard no_grad;
+    for (auto const &w: weights) {
+        const std::string name = w.key().toStringRef();
+        const at::Tensor param = w.value().toTensor();
+
+        if (std::find(param_names.begin(), param_names.end(), name) != param_names.end()) {
+            std::cout << "Copying " << name << std::endl;
+            model_params.find(name)->copy_(param);
+        } else {
+            std::cout << name << " does not exist among model parameters." << std::endl;
+        };
     }
 }

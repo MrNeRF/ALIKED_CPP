@@ -115,7 +115,7 @@ int main(int argc, char* argv[]) {
     
     // Initialize model
     std::cout << "Initializing ALIKED model..." << std::endl;
-    ALIKED model(model_name, device, top_k, scores_th, n_limit);
+    auto model = std::make_shared<ALIKED>(model_name, device, top_k, scores_th, n_limit);
     
     // Load images
     ImageLoader image_loader(input_dir);
@@ -129,7 +129,7 @@ int main(int argc, char* argv[]) {
     cv::Mat img_rgb_ref;
     cv::cvtColor(img_ref, img_rgb_ref, cv::COLOR_BGR2RGB);
     
-    auto pred_ref = model.run(img_rgb_ref);
+    auto pred_ref = model->run(img_rgb_ref);
     auto kpts_ref = pred_ref.at("keypoints");
     auto desc_ref = pred_ref.at("descriptors");
 
@@ -142,7 +142,7 @@ int main(int argc, char* argv[]) {
         cv::Mat img_rgb;
         cv::cvtColor(img, img_rgb, cv::COLOR_BGR2RGB);
         
-        auto pred = model.run(img_rgb);
+        auto pred = model->run(img_rgb);
         auto kpts = pred.at("keypoints");
         auto desc = pred.at("descriptors");
 
