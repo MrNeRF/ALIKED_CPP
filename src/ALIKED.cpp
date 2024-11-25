@@ -264,21 +264,40 @@ void ALIKED::load_parameters(const std::string &pt_pth) {
     c10::Dict<at::IValue, at::IValue> weights = torch::pickle_load(f).toGenericDict();
 
     auto model_params = named_parameters();
-    std::vector<std::string> param_names;
-    for (auto const &w: model_params) {
-        param_names.push_back(w.key());
+    auto model_buffers = named_buffers();
+
+    // Collect parameter names
+    std::unordered_map<std::string, torch::Tensor> param_map;
+    for (const auto& p : model_params) {
+        param_map[p.key()] = p.value();
     }
 
+    // Collect buffer names
+    std::unordered_map<std::string, torch::Tensor> buffer_map;
+    for (const auto& b : model_buffers) {
+        buffer_map[b.key()] = b.value();
+    }
+
+    // Update parameters and buffers
     torch::NoGradGuard no_grad;
-    for (auto const &w: weights) {
+    for (const auto& w : weights) {
         const std::string name = w.key().toStringRef();
         const at::Tensor param = w.value().toTensor();
 
-        if (std::find(param_names.begin(), param_names.end(), name) != param_names.end()) {
-            std::cout << "Copying " << name << std::endl;
-            model_params.find(name)->copy_(param);
+        if (param_map.count(name)) {
+            if (param_map[name].sizes() == param.sizes()) {
+                param_map[name].copy_(param);
+            } else {
+                std::cerr << "Shape mismatch for parameter: " << name << std::endl;
+            }
+        } else if (buffer_map.count(name)) {
+            if (buffer_map[name].sizes() == param.sizes()) {
+                buffer_map[name].copy_(param);
+            } else {
+                std::cerr << "Shape mismatch for buffer: " << name << std::endl;
+            }
         } else {
-            std::cout << name << " does not exist among model parameters." << std::endl;
-        };
+            std::cerr << name << " does not exist among model parameters or buffers." << std::endl;
+        }
     }
 }
