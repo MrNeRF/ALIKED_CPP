@@ -65,8 +65,7 @@ public:
            const std::string& device = "cuda",
            int top_k = -1,
            float scores_th = 0.2,
-           int n_limit = 5000,
-           bool load_pretrained = true);
+           int n_limit = 5000);
 
     std::tuple<torch::Tensor, torch::Tensor> extract_dense_map(torch::Tensor image);
     torch::Dict<std::string, torch::Tensor> forward(torch::Tensor image);
@@ -88,5 +87,5 @@ private:
     std::shared_ptr<SDDH> desc_head_;
 
     torch::Device device_;
-    int dim_;
+    int dim_{};
 };

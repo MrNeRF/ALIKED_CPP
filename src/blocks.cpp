@@ -1,62 +1,103 @@
 #include "blocks.hpp"
 #include "deform_conv2d.h"
 
-torch::nn::Conv2d get_conv(int inplanes, int planes, int kernel_size = 3,
-                           int stride = 1, int padding = 1, bool bias = false,
-                           const std::string& conv_type = "conv", bool mask = false) {
-    if (conv_type == "conv")
-    {
-        return torch::nn::Conv2d(
-            torch::nn::Conv2dOptions(inplanes, planes, kernel_size)
-                .stride(stride)
-                .padding(padding)
-                .bias(bias));
-    } else if (conv_type == "dcn")
-    {
-        // Note: For now, using regular conv as DCN requires additional implementation
-        return torch::nn::Conv2d(
-            torch::nn::Conv2dOptions(inplanes, planes, kernel_size)
-                .stride(stride)
-                .padding(padding)
-                .bias(bias));
-    } else
-    {
-        throw std::runtime_error("Unknown conv type: " + conv_type);
-    }
-}
-
 ConvBlock::ConvBlock(int in_channels, int out_channels,
                      const std::string& conv_type, bool mask) {
-    conv1_ = register_module("conv1",
-                             get_conv(in_channels, out_channels, 3, 1, 1, false, conv_type, mask));
-    bn1_ = register_module("bn1",
-                           torch::nn::BatchNorm2d(out_channels));
 
-    conv2_ = register_module("conv2",
-                             get_conv(out_channels, out_channels, 3, 1, 1, false, conv_type, mask));
-    bn2_ = register_module("bn2",
-                           torch::nn::BatchNorm2d(out_channels));
+    if (conv_type == "conv") {
+
+        auto conv1 = torch::nn::Conv2d((torch::nn::Conv2dOptions(in_channels, out_channels, 3)
+                    .stride(1)
+                    .padding(1)
+                    .bias(false)));
+        conv1_ = register_module("conv1", conv1 );
+
+        auto conv2 = torch::nn::Conv2d((torch::nn::Conv2dOptions(out_channels, out_channels, 3)
+                    .stride(1)
+                    .padding(1)
+                    .bias(false)));
+        conv2_ = register_module("conv2", conv2);
+
+    } else {
+        auto conv1 = std::make_shared<DeformableConv2d>(
+                in_channels,
+                out_channels,
+                3,
+                1,
+                1,
+                false,
+                mask);
+        deform1_ = register_module("conv1", conv1);
+
+        auto conv2 = std::make_shared<DeformableConv2d>(
+                out_channels,
+                out_channels,
+                3,
+                1,
+                1,
+                false,
+                mask);
+        deform2_ = register_module("conv2", conv2);
+    }
+
+    bn1_ = register_module("bn1", torch::nn::BatchNorm2d(out_channels));
+    bn2_ = register_module("bn2", torch::nn::BatchNorm2d(out_channels));
 }
 
 torch::Tensor ConvBlock::forward(torch::Tensor x) {
-    x = torch::selu(bn1_->forward(conv1_->forward(x)));
-    x = torch::selu(bn2_->forward(conv2_->forward(x)));
+    if (conv1_ && conv2_) {
+        x = torch::selu(bn1_->forward(conv1_->forward(x)));
+        x = torch::selu(bn2_->forward(conv2_->forward(x)));
+    } else {
+        x = torch::selu(bn1_->forward(deform1_->forward(x)));
+        x = torch::selu(bn2_->forward(deform2_->forward(x)));
+    }
     return x;
 }
 
 ResBlock::ResBlock(int inplanes, int planes, int stride,
-                   std::shared_ptr<torch::nn::Module> downsample,
+                   const std::shared_ptr<torch::nn::Module>& downsample,
                    const std::string& conv_type, bool mask)
-    : downsample_(downsample),
-      stride_(stride) {
+    : downsample_(downsample) {
 
-    conv1_ = register_module("conv1",
-                             get_conv(inplanes, planes, 3, 1, 1, false, conv_type, mask));
+    if (conv_type == "conv") {
+
+        auto conv1 = torch::nn::Conv2d((torch::nn::Conv2dOptions(inplanes, planes, 3)
+                .stride(1)
+                .padding(1)
+                .bias(false)));
+        conv1_ = register_module("conv1", conv1 );
+
+        auto conv2 = torch::nn::Conv2d((torch::nn::Conv2dOptions(inplanes, planes, 3)
+                .stride(1)
+                .padding(1)
+                .bias(false)));
+        conv2_ = register_module("conv2", conv2);
+
+    } else {
+        auto conv1 = std::make_shared<DeformableConv2d>(
+                inplanes,
+                planes,
+                3,
+                1,
+                1,
+                false,
+                mask);
+        deform1_ = register_module("conv1", conv1);
+
+        auto conv2 = std::make_shared<DeformableConv2d>(
+                inplanes,
+                planes,
+                3,
+                1,
+                1,
+                false,
+                mask);
+        deform2_ = register_module("conv2", conv2);
+    }
+
     bn1_ = register_module("bn1",
                            torch::nn::BatchNorm2d(planes));
-
-    conv2_ = register_module("conv2",
-                             get_conv(planes, planes, 3, 1, 1, false, conv_type, mask));
     bn2_ = register_module("bn2",
                            torch::nn::BatchNorm2d(planes));
 
@@ -69,13 +110,21 @@ ResBlock::ResBlock(int inplanes, int planes, int stride,
 torch::Tensor ResBlock::forward(torch::Tensor x) {
     auto identity = x;
 
-    x = conv1_->forward(x);
-    x = bn1_->forward(x);
-    x = torch::selu(x);
+    if (conv1_ && conv2_) {
+        x = conv1_->forward(x);
+        x = bn1_->forward(x);
+        x = torch::selu(x);
 
-    x = conv2_->forward(x);
-    x = bn2_->forward(x);
+        x = conv2_->forward(x);
+        x = bn2_->forward(x);
+    } else {
+        x = deform1_->forward(x);
+        x = bn1_->forward(x);
+        x = torch::selu(x);
 
+        x = deform2_->forward(x);
+        x = bn2_->forward(x);
+    }
     if (downsample_)
     {
         identity = downsample_->as<torch::nn::Conv2d>()->forward(identity);

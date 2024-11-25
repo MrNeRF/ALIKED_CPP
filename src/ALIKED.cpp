@@ -48,85 +48,80 @@ ALIKED::ALIKED(const std::string& model_name,
                const std::string& device,
                int top_k,
                float scores_th,
-               int n_limit,
-               bool load_pretrained)
-    : device_(torch::Device(device)) {
+               int n_limit)
+    : device_(torch::Device(device)),
+    dim_{-1}
+    {
 
     // Initialize layers
     init_layers(model_name);
 
     // Initialize DKD and descriptor head
     dkd_ = std::make_shared<DKD>(2, top_k, scores_th, n_limit);
-    register_module("dkd", dkd_);
 
     auto config = ALIKED_CFGS.at(model_name);
     desc_head_ = std::make_shared<SDDH>(config.dim, config.K, config.M);
-    register_module("desc_head", desc_head_);
 
-    if (load_pretrained)
-    {
-        load_weights(model_name);
-    }
+    load_weights(model_name);
 
     this->to(device_);
     this->eval();
 }
 
 void ALIKED::init_layers(const std::string& model_name) {
-    // Example configuration: assuming `config` contains layer dimension details
     auto config = ALIKED_CFGS.at(model_name);
     dim_ = config.dim;
 
-    // Initialize layers with proper Sequential containers
-    block1_ = torch::nn::Sequential(
-            ConvBlock(3, config.c1, "conv", false)
-    );
+    // Basic layers first
+    pool2_ = register_module("pool2", torch::nn::AvgPool2d(torch::nn::AvgPool2dOptions(2).stride(2)));
+    pool4_ = register_module("pool4", torch::nn::AvgPool2d(torch::nn::AvgPool2dOptions(4).stride(4)));
 
-    block2_ = torch::nn::Sequential(
-            ResBlock(config.c1, config.c2, 2, nullptr, "conv", false)
-    );
+    // Block 1
+    auto block1 = std::make_shared<ConvBlock>(3, config.c1, "conv", false);
+    register_module("block1", block1);
 
-    block3_ = torch::nn::Sequential(
-            ResBlock(config.c2, config.c3, 2, nullptr, "dcn", true)
-    );
+    // Block 2
+    auto downsample2 = torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c1, config.c2, 1));
+    auto block2 = std::make_shared<ResBlock>(config.c1, config.c2, 1,
+                                             register_module("block2.downsample", downsample2),
+                                             "conv", false);
+    register_module("block2", block2);
 
-    block4_ = torch::nn::Sequential(
-            ResBlock(config.c3, config.c4, 2, nullptr, "dcn", true)
-    );
+    // Block 3
+    auto downsample3 = torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c2, config.c3, 1));
+    auto block3 = std::make_shared<ResBlock>(config.c2, config.c3, 1,
+                                             register_module("block3.downsample", downsample3),
+                                             "dcn", true);
+    register_module("block3", block3);
 
-    // Initialize pooling layers
-    pool2_ = torch::nn::AvgPool2d(torch::nn::AvgPool2dOptions(2).stride(2));
-    pool4_ = torch::nn::AvgPool2d(torch::nn::AvgPool2dOptions(4).stride(4));
+    // Block 4
+    auto downsample4 = torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c3, config.c4, 1));
+    auto block4 = std::make_shared<ResBlock>(config.c3, config.c4, 1,
+                                             register_module("block4.downsample", downsample4),
+                                             "dcn", true);
+    register_module("block4", block4);
 
-    // Initialize other layers
-    conv1_ = torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c1, dim_ / 4, 1));
-    conv2_ = torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c2, dim_ / 4, 3).padding(1));
-    conv3_ = torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c3, dim_ / 4, 3).padding(1));
-    conv4_ = torch::nn::Conv2d(torch::nn::Conv2dOptions(dim_, dim_ / 4, 3).padding(1));
+    // Convolution layers
+    conv1_ = register_module("conv1", torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c1, dim_ / 4, 1)));
+    conv2_ = register_module("conv2", torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c2, dim_ / 4, 1)));
+    conv3_ = register_module("conv3", torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c3, dim_ / 4, 1)));
+    conv4_ = register_module("conv4", torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c4, dim_ / 4, 1)));
 
-    // Preserve the original score head logic
-    score_head_ = torch::nn::Sequential(
-            torch::nn::Conv2d(torch::nn::Conv2dOptions(dim_, 8, 1)),
-            torch::nn::SELU(),
-            torch::nn::Conv2d(torch::nn::Conv2dOptions(8, 4, 3).padding(1)),
-            torch::nn::SELU(),
-            torch::nn::Conv2d(torch::nn::Conv2dOptions(4, 4, 3).padding(1)),
-            torch::nn::SELU(),
-            torch::nn::Conv2d(torch::nn::Conv2dOptions(4, 1, 3).padding(1))
-    );
+    // Score head
+    auto score_head = torch::nn::Sequential();
+    score_head->push_back("0", torch::nn::Conv2d(torch::nn::Conv2dOptions(dim_, 8, 1)));
+    score_head->push_back("1", torch::nn::SELU());
+    score_head->push_back("2", torch::nn::Conv2d(torch::nn::Conv2dOptions(8, 4, 3).padding(1)));
+    score_head->push_back("3", torch::nn::SELU());
+    score_head->push_back("4", torch::nn::Conv2d(torch::nn::Conv2dOptions(4, 4, 3).padding(1)));
+    score_head->push_back("5", torch::nn::SELU());
+    score_head->push_back("6", torch::nn::Conv2d(torch::nn::Conv2dOptions(4, 1, 3).padding(1)));
+    register_module("score_head", score_head);
 
-    // Register layers
-    register_module("block1_", block1_);
-    register_module("block2_", block2_);
-    register_module("block3_", block3_);
-    register_module("block4_", block4_);
-    register_module("pool2_", pool2_);
-    register_module("pool4_", pool4_);
-    register_module("conv1_", conv1_);
-    register_module("conv2_", conv2_);
-    register_module("conv3_", conv3_);
-    register_module("conv4_", conv4_);
-    register_module("score_head_", score_head_);
+    // Descriptor head
+    register_module("desc_head", desc_head_);
+    // DKD
+    register_module("dkd", dkd_);
 }
 
 std::tuple<torch::Tensor, torch::Tensor>
