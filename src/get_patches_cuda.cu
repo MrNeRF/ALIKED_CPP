@@ -1,10 +1,10 @@
 #include "get_patches_cuda.h"
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/macros/Macros.h>
+#include <cstdio>
 #include <cuda.h>
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
-#include <cstdio>
 #include <torch/torch.h>
 
 namespace F = torch::nn::functional;

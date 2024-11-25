@@ -1,14 +1,13 @@
+#include "get_patches_cuda.h"
 #include <math.h>
 #include <torch/torch.h>
-#include "get_patches_cuda.h"
-
 
 // map: CxHxW
 // points: Nx2
 // kernel_size: int
 // return: N x C x kernel_size x kernel_size
 namespace custom_ops {
-    torch::Tensor get_patches_forward_cpu(const torch::Tensor &map, torch::Tensor &points, int64_t kernel_size) {
+    torch::Tensor get_patches_forward_cpu(const torch::Tensor& map, torch::Tensor& points, int64_t kernel_size) {
         namespace F = torch::nn::functional;
         using namespace torch::indexing;
 
@@ -23,8 +22,7 @@ namespace custom_ops {
         int pad_right_bottom = ceil(radius);
 
         // pad map
-        auto options = F::PadFuncOptions({pad_left_top, pad_right_bottom, pad_left_top, pad_right_bottom}).mode(
-                torch::kConstant);
+        auto options = F::PadFuncOptions({pad_left_top, pad_right_bottom, pad_left_top, pad_right_bottom}).mode(torch::kConstant);
         auto map_pad = F::pad(map.unsqueeze(0), options).squeeze(0); // Cx(H+2*radius)x(W+2*radius)
 
         // get patches
@@ -33,14 +31,18 @@ namespace custom_ops {
         auto a_map_pad = map_pad.accessor<float, 3>(); // Cx(H+2*radius)x(W+2*radius)
         auto a_patches = patches.accessor<float, 4>(); // N x C x kernel_size x kernel_size
 
-        for (auto in = 0; in < N; in++) {
+        for (auto in = 0; in < N; in++)
+        {
             auto w_start = a_points[in][0];
             auto h_start = a_points[in][1];
 
             // copy data
-            for (auto ic = 0; ic < C; ic++) {
-                for (auto ih = 0; ih < kernel_size; ih++) {
-                    for (auto iw = 0; iw < kernel_size; iw++) {
+            for (auto ic = 0; ic < C; ic++)
+            {
+                for (auto ih = 0; ih < kernel_size; ih++)
+                {
+                    for (auto iw = 0; iw < kernel_size; iw++)
+                    {
                         a_patches[in][ic][ih][iw] = a_map_pad[ic][ih + h_start][iw + w_start];
                     }
                 }
@@ -49,10 +51,10 @@ namespace custom_ops {
         return patches;
     }
 
-// patches: NxCx(2*radius+1)x(2*radius+1)
-// points: Nx2
+    // patches: NxCx(2*radius+1)x(2*radius+1)
+    // points: Nx2
     torch::Tensor
-    get_patches_backward_cpu(const torch::Tensor &d_patches, torch::Tensor &points, int64_t H, int64_t W) {
+    get_patches_backward_cpu(const torch::Tensor& d_patches, torch::Tensor& points, int64_t H, int64_t W) {
         namespace F = torch::nn::functional;
         using namespace torch::indexing;
 
@@ -77,16 +79,20 @@ namespace custom_ops {
         auto a_points = points.accessor<long, 2>();        // Nx2
         auto a_d_map_pad = d_map_pad.accessor<float, 3>(); // Cx(H+2*radius)x(W+2*radius)
         auto a_p_patches = d_patches.accessor<float, 4>(); // NxCxkernel_sizexkernel_size
-        for (auto in = 0; in < N; in++) {
+        for (auto in = 0; in < N; in++)
+        {
             // long w_start = static_cast<long>(*(p_points + in * 2 + 0));
             // long h_start = static_cast<long>(*(p_points + in * 2 + 1));
             auto w_start = a_points[in][0];
             auto h_start = a_points[in][1];
 
             // copy data
-            for (auto ic = 0; ic < C; ic++) {
-                for (auto ih = 0; ih < kernel_size; ih++) {
-                    for (auto iw = 0; iw < kernel_size; iw++) {
+            for (auto ic = 0; ic < C; ic++)
+            {
+                for (auto ih = 0; ih < kernel_size; ih++)
+                {
+                    for (auto iw = 0; iw < kernel_size; iw++)
+                    {
                         a_d_map_pad[ic][ih + h_start][iw + w_start] = a_p_patches[in][ic][ih][iw];
                     }
                 }
@@ -94,23 +100,24 @@ namespace custom_ops {
         }
 
         auto d_map = d_map_pad.index(
-                {Slice(), Slice(pad_left_top, -pad_right_bottom), Slice(pad_left_top, -pad_right_bottom)});
+            {Slice(), Slice(pad_left_top, -pad_right_bottom), Slice(pad_left_top, -pad_right_bottom)});
 
         return d_map;
     }
 
-    torch::Tensor get_patches_forward(const torch::Tensor &map, torch::Tensor &points, int64_t kernel_size) {
+    torch::Tensor get_patches_forward(const torch::Tensor& map, torch::Tensor& points, int64_t kernel_size) {
         if (map.device() == torch::kCPU)
             return get_patches_forward_cpu(map, points, kernel_size);
-        else {
+        else
+        {
             return get_patches_forward_cuda(map, points, kernel_size);
         }
     }
 
-    torch::Tensor get_patches_backward(const torch::Tensor &d_patches, torch::Tensor &points, int64_t H, int64_t W) {
+    torch::Tensor get_patches_backward(const torch::Tensor& d_patches, torch::Tensor& points, int64_t H, int64_t W) {
         if (d_patches.device() == torch::kCPU)
             return get_patches_backward_cpu(d_patches, points, H, W);
         else
             return get_patches_backward_cuda(d_patches, points, H, W);
     }
-}
+} // namespace custom_ops

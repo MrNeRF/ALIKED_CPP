@@ -5,10 +5,10 @@
 #include <opencv2/opencv.hpp>
 #include <torch/torch.h>
 
-#include <map>
-#include <string>
 #include <fstream>
+#include <map>
 #include <memory>
+#include <string>
 
 struct AlikedConfig {
     int c1, c2, c3, c4, dim, K, M;
@@ -76,7 +76,8 @@ private:
     void load_weights(const std::string& model_name);
 
     // Utility functions to import weigths from Python
-    void load_parameters(const std::string& pt_pth);   static std::vector<char> get_the_bytes(const std::string& filename);
+    void load_parameters(const std::string& pt_pth);
+    static std::vector<char> get_the_bytes(const std::string& filename);
 
     // Feature extraction layers
     torch::nn::AvgPool2d pool2_{nullptr}, pool4_{nullptr};

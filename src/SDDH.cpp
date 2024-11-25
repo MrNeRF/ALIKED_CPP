@@ -1,6 +1,6 @@
 #include "ALIKED.hpp"
-#include <torch/torch.h>
 #include "get_patches.hpp"
+#include <torch/torch.h>
 
 using namespace torch::indexing;
 

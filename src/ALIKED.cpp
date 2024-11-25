@@ -11,9 +11,7 @@ ALIKED::ALIKED(const std::string& model_name,
                float scores_th,
                int n_limit)
     : device_(torch::Device(device)),
-    dim_{-1}
-    {
-
+      dim_{-1} {
 
     // Initialize DKD and descriptor head
     dkd_ = std::make_shared<DKD>(2, top_k, scores_th, n_limit);
@@ -60,14 +58,13 @@ void ALIKED::init_layers(const std::string& model_name) {
 
     // Score head
     score_head_ = register_module("score_head", torch::nn::Sequential(
-            torch::nn::Conv2d(torch::nn::Conv2dOptions(dim_, 8, 1)),
-            torch::nn::SELU(),
-            torch::nn::Conv2d(torch::nn::Conv2dOptions(8, 4, 3).padding(1)),
-            torch::nn::SELU(),
-            torch::nn::Conv2d(torch::nn::Conv2dOptions(4, 4, 3).padding(1)),
-            torch::nn::SELU(),
-            torch::nn::Conv2d(torch::nn::Conv2dOptions(4, 1, 3).padding(1))
-    ));
+                                                    torch::nn::Conv2d(torch::nn::Conv2dOptions(dim_, 8, 1)),
+                                                    torch::nn::SELU(),
+                                                    torch::nn::Conv2d(torch::nn::Conv2dOptions(8, 4, 3).padding(1)),
+                                                    torch::nn::SELU(),
+                                                    torch::nn::Conv2d(torch::nn::Conv2dOptions(4, 4, 3).padding(1)),
+                                                    torch::nn::SELU(),
+                                                    torch::nn::Conv2d(torch::nn::Conv2dOptions(4, 1, 3).padding(1))));
 
     // Descriptor head
     register_module("desc_head", desc_head_);
@@ -75,7 +72,6 @@ void ALIKED::init_layers(const std::string& model_name) {
     // DKD
     register_module("dkd", dkd_);
 }
-
 
 std::tuple<torch::Tensor, torch::Tensor>
 ALIKED::extract_dense_map(torch::Tensor image) {
@@ -88,7 +84,6 @@ ALIKED::extract_dense_map(torch::Tensor image) {
     auto x2 = std::dynamic_pointer_cast<ResBlock>(block2_)->forward(pool2_->forward(x1));
     auto x3 = std::dynamic_pointer_cast<ResBlock>(block3_)->forward(pool4_->forward(x2));
     auto x4 = std::dynamic_pointer_cast<ResBlock>(block4_)->forward(pool4_->forward(x3));
-
 
     // Feature aggregation
     x1 = torch::selu(conv1_->forward(x1));
@@ -115,7 +110,7 @@ ALIKED::extract_dense_map(torch::Tensor image) {
     auto feature_map = torch::nn::functional::normalize(x1234,
                                                         torch::nn::functional::NormalizeFuncOptions().p(2).dim(1));
 
-// Unpad the tensors
+    // Unpad the tensors
     feature_map = padder.unpad(feature_map).contiguous();
     score_map = padder.unpad(score_map).contiguous();
 
@@ -161,7 +156,8 @@ torch::Dict<std::string, torch::Tensor> ALIKED::run(cv::Mat& img_rgb) {
                        .device(device_);
 
     std::vector<torch::Tensor> tensor_channels;
-    for (const auto& channel : channels) {
+    for (const auto& channel : channels)
+    {
         // Create tensor on host first, then transfer to CUDA
         auto host_tensor = torch::from_blob(channel.data, {channel.rows, channel.cols}, torch::TensorOptions().dtype(torch::kFloat32));
         tensor_channels.push_back(host_tensor.clone().to(device_));
@@ -199,12 +195,12 @@ void ALIKED::load_weights(const std::string& model_name) {
     try
     {
         // Load the PyTorch saved model
-        //torch::serialize::InputArchive archive;
-        //archive.load_from(model_path);
+        // torch::serialize::InputArchive archive;
+        // archive.load_from(model_path);
         load_parameters(model_path);
         // Load into the model
-        //torch::NoGradGuard no_grad;
-        //for (const auto& key : archive.keys())
+        // torch::NoGradGuard no_grad;
+        // for (const auto& key : archive.keys())
         //{
         //    torch::Tensor tensor;
         //    archive.read(key, tensor);
@@ -244,17 +240,17 @@ void ALIKED::load_weights(const std::string& model_name) {
     }
 }
 
-std::vector<char> ALIKED::get_the_bytes(const std::string &filename) {
+std::vector<char> ALIKED::get_the_bytes(const std::string& filename) {
     std::ifstream input(filename, std::ios::binary);
     std::vector<char> bytes(
-            (std::istreambuf_iterator<char>(input)),
-            (std::istreambuf_iterator<char>()));
+        (std::istreambuf_iterator<char>(input)),
+        (std::istreambuf_iterator<char>()));
 
     input.close();
     return bytes;
 }
 
-void ALIKED::load_parameters(const std::string &pt_pth) {
+void ALIKED::load_parameters(const std::string& pt_pth) {
     std::vector<char> f = ALIKED::get_the_bytes(pt_pth);
     c10::Dict<at::IValue, at::IValue> weights = torch::pickle_load(f).toGenericDict();
 
@@ -263,35 +259,45 @@ void ALIKED::load_parameters(const std::string &pt_pth) {
 
     // Collect parameter names
     std::unordered_map<std::string, torch::Tensor> param_map;
-    for (const auto& p : model_params) {
+    for (const auto& p : model_params)
+    {
         param_map[p.key()] = p.value();
     }
 
     // Collect buffer names
     std::unordered_map<std::string, torch::Tensor> buffer_map;
-    for (const auto& b : model_buffers) {
+    for (const auto& b : model_buffers)
+    {
         buffer_map[b.key()] = b.value();
     }
 
     // Update parameters and buffers
     torch::NoGradGuard no_grad;
-    for (const auto& w : weights) {
+    for (const auto& w : weights)
+    {
         const std::string name = w.key().toStringRef();
         const at::Tensor param = w.value().toTensor();
 
-        if (param_map.count(name)) {
-            if (param_map[name].sizes() == param.sizes()) {
+        if (param_map.count(name))
+        {
+            if (param_map[name].sizes() == param.sizes())
+            {
                 param_map[name].copy_(param);
-            } else {
+            } else
+            {
                 std::cerr << "Shape mismatch for parameter: " << name << std::endl;
             }
-        } else if (buffer_map.count(name)) {
-            if (buffer_map[name].sizes() == param.sizes()) {
+        } else if (buffer_map.count(name))
+        {
+            if (buffer_map[name].sizes() == param.sizes())
+            {
                 buffer_map[name].copy_(param);
-            } else {
+            } else
+            {
                 std::cerr << "Shape mismatch for buffer: " << name << std::endl;
             }
-        } else {
+        } else
+        {
             std::cerr << name << " does not exist among model parameters or buffers." << std::endl;
         }
     }
