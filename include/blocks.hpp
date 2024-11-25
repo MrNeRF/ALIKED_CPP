@@ -29,3 +29,21 @@ private:
     std::shared_ptr<torch::nn::Module> downsample_;
     int stride_;
 };
+
+class DeformableConv2d : public torch::nn::Module {
+public:
+    DeformableConv2d(int in_channels, int out_channels,
+                     int kernel_size = 3, int stride = 1,
+                     int padding = 1, bool bias = false, bool mask = false);
+
+    torch::Tensor forward(torch::Tensor x);
+
+private:
+    torch::nn::Conv2d offset_conv_{nullptr};
+    torch::nn::Conv2d regular_conv_{nullptr};
+    int padding_;
+    bool mask_;
+    int kernel_size_;
+    int groups_ = 1;
+    int mask_offset_ = 0;
+};

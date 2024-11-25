@@ -35,8 +35,10 @@ set(HEADERS
         include/ALIKED.hpp
         include/blocks.hpp
         include/get_patches.hpp
-        include/get_patches_cuda.h
         include/input_padder.hpp
+        include/deform_conv2d.h
+        include/get_patches_cuda.h
+        include/cuda_helpers.h
 )
 
 set(SOURCES
@@ -46,6 +48,8 @@ set(SOURCES
         src/DKD.cpp
         src/get_patches.cpp
         src/SDDH.cpp
+        src/deform_conv2d.cpp
+        src/deform_conv2d_kernel.cu
         src/get_patches_cuda.cu
 )
 
