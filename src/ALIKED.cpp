@@ -290,7 +290,6 @@ void ALIKED::load_parameters(std::string_view pt_pth) {
         // Try parameters first
         if (auto it = param_map.find(name); it != param_map.end())
         {
-            std::cout << "Updating parameter: " << name << std::endl;
             if (it->second.sizes() == param.sizes())
             {
                 it->second.copy_(param);
@@ -307,7 +306,6 @@ void ALIKED::load_parameters(std::string_view pt_pth) {
         // Then try buffers
         if (auto it = buffer_map.find(name); it != buffer_map.end())
         {
-            std::cout << "Updating buffer: " << name << std::endl;
             if (it->second.sizes() == param.sizes())
             {
                 it->second.copy_(param);
