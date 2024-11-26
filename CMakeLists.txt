@@ -1,37 +1,63 @@
 cmake_minimum_required(VERSION 3.26)
-project(aliked LANGUAGES CUDA CXX)
+project(aliked
+        VERSION 1.0.0
+        DESCRIPTION "C++ implementation of ALIKED"
+        LANGUAGES CUDA CXX)
 
-# Determine the project root directory
-get_filename_component(PROJ_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
+# Enable LTO/IPO
+include(CheckIPOSupported)
+check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT IPO_ERROR)
+if(IPO_SUPPORTED)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+endif()
 
-# Define the absolute path to libtorch
-set(LIBTORCH_DIR "${PROJ_ROOT_DIR}/external/libtorch")
+# Core configuration
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_ARCHITECTURES native)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Set CMAKE_PREFIX_PATH
+# Configure paths
+set(ALIKED_MODELS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/models" CACHE PATH "Path to model weights directory")
+
+# Find dependencies
+set(LIBTORCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/libtorch")
 set(CMAKE_PREFIX_PATH ${LIBTORCH_DIR})
 
-#set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_89 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_89,code=compute_89")
+find_package(Torch REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 
-# --------------------------------------
-# Core count calculation
-# --------------------------------------
+# Check CUDA version
+if(CUDAToolkit_VERSION VERSION_LESS "12.1")
+    message(FATAL_ERROR "This project requires CUDA 12.1 or higher (found: ${CUDAToolkit_VERSION})")
+endif()
 
-include(ProcessorCount)
-ProcessorCount(total_cores)
-if (NOT DEFINED total_cores OR total_cores EQUAL 0)
-    set(total_cores 1)
-    set(used_cores 1)
-elseif (total_cores GREATER 1)
-    math(EXPR used_cores "${total_cores} - 2") # use total_cores-2 if total_cores > 1
-endif ()
-set(ENV{MAKEFLAGS} "-j${used_cores}")
-message(STATUS "Building with ${used_cores} out of ${total_cores} available cores")
+# Performance flags
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set(PERFORMANCE_FLAGS
+            -O3
+            -march=native
+            -mtune=native
+            -fomit-frame-pointer
+            -ffast-math
+    )
+endif()
 
-# --------------------------------------
-# Files
-# --------------------------------------
+# CUDA flags
+set(CUDA_FLAGS
+        -O3
+        --use_fast_math
+        -DNDEBUG
+)
 
-set(HEADERS
+# Add models directory definition
+add_definitions(-DALIKED_MODELS_DIR="${ALIKED_MODELS_DIR}")
+
+# Source files
+set(ALIKED_HEADERS
         include/ALIKED.hpp
         include/DKD.hpp
         include/SDDH.hpp
@@ -43,8 +69,7 @@ set(HEADERS
         include/cuda_helpers.h
 )
 
-set(SOURCES
-        examples/main.cpp
+set(ALIKED_SOURCES
         src/blocks.cpp
         src/ALIKED.cpp
         src/DKD.cpp
@@ -56,62 +81,59 @@ set(SOURCES
         src/get_patches_cuda.cu
 )
 
-# --------------------------------------
-# Project target
-# --------------------------------------
-
-add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
-
-set_target_properties(${PROJECT_NAME} PROPERTIES
-        CUDA_ARCHITECTURES native
-        CUDA_STANDARD 17
-        CUDA_STANDARD_REQUIRED ON
-        CXX_STANDARD 20
-        CXX_STANDARD_REQUIRED ON
+# Library target
+add_library(${PROJECT_NAME}_lib STATIC
+        ${ALIKED_SOURCES}
+        ${ALIKED_HEADERS}
 )
 
-set_source_files_properties(src/get_patches_cuda.cu PROPERTIES LANGUAGE CUDA)
-target_include_directories(${PROJECT_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+add_library(${PROJECT_NAME}::lib ALIAS ${PROJECT_NAME}_lib)
 
-# Torch setup
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
-find_package(Torch REQUIRED)
-find_package(OpenCV REQUIRED)
+target_include_directories(${PROJECT_NAME}_lib
+        PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
 
-# Build options based on CMAKE_BUILD_TYPE
-function(configure_build_type)
-    if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-        #target_compile_options(${PROJECT_NAME} PRIVATE -O0 -g -G -Xcompiler -Werror)
-        set_target_properties(${PROJECT_NAME} PROPERTIES
-                CUDA_RESOLVE_DEVICE_SYMBOLS ON
-                CUDA_SEPARABLE_COMPILATION ON
-        )
-    elseif (CMAKE_BUILD_TYPE STREQUAL "Release")
-        target_compile_options(${PROJECT_NAME} PRIVATE -O3 -use_fast_math)
-    endif ()
-endfunction()
-configure_build_type()
-
-# Required packages
-find_package(CUDAToolkit REQUIRED)
-
-# Check CUDA version
-if (CUDAToolkit_VERSION VERSION_LESS "12.1")
-    message(FATAL_ERROR "This project requires CUDA 12.1 or higher")
-endif ()
-
-find_package(PythonLibs REQUIRED)
-include_directories(${PYTHON_INCLUDE_DIRS})
-
-# --------------------------------------
-# Linking
-# --------------------------------------
-
-target_link_libraries(${PROJECT_NAME}
+target_compile_options(${PROJECT_NAME}_lib
         PRIVATE
+        $<$<COMPILE_LANGUAGE:CXX>:${PERFORMANCE_FLAGS}>
+        $<$<COMPILE_LANGUAGE:CUDA>:${CUDA_FLAGS}>
+)
+
+target_link_libraries(${PROJECT_NAME}_lib
+        PUBLIC
         ${TORCH_LIBRARIES}
         ${OpenCV_LIBS}
+        PRIVATE
         CUDA::cudart
         CUDA::curand
         CUDA::cublas
 )
+
+# Properties for maximum performance
+set_target_properties(${PROJECT_NAME}_lib PROPERTIES
+        CUDA_SEPARABLE_COMPILATION ON
+        CUDA_RESOLVE_DEVICE_SYMBOLS ON
+        POSITION_INDEPENDENT_CODE ON
+        INTERPROCEDURAL_OPTIMIZATION ${IPO_SUPPORTED}
+)
+
+# Example application
+add_executable(${PROJECT_NAME} examples/main.cpp)
+target_link_libraries(${PROJECT_NAME} PRIVATE ${PROJECT_NAME}::lib)
+
+# Set output directories
+set_target_properties(${PROJECT_NAME} ${PROJECT_NAME}_lib PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+)
+
+# Create models directory if it doesn't exist
+add_custom_target(create_models_dir ALL
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${ALIKED_MODELS_DIR}
+)
+
+# Print models directory location
+message(STATUS "Models directory: ${ALIKED_MODELS_DIR}")
