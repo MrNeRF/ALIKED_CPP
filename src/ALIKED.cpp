@@ -60,27 +60,27 @@ ALIKED::extract_dense_map(torch::Tensor image) && {
     image = std::move(padder).pad(std::move(image));
 
     // Feature extraction with move semantics
-    auto x1 = std::dynamic_pointer_cast<ConvBlock>(block1_)->forward(std::move(image));
-    auto x2 = std::dynamic_pointer_cast<ResBlock>(block2_)->forward(pool2_->forward(std::move(x1)));
-    auto x3 = std::dynamic_pointer_cast<ResBlock>(block3_)->forward(pool4_->forward(std::move(x2)));
-    auto x4 = std::dynamic_pointer_cast<ResBlock>(block4_)->forward(pool4_->forward(std::move(x3)));
+    auto x1 = std::dynamic_pointer_cast<ConvBlock>(block1_)->forward(image);
+    auto x2 = std::dynamic_pointer_cast<ResBlock>(block2_)->forward(pool2_->forward(x1));
+    auto x3 = std::dynamic_pointer_cast<ResBlock>(block3_)->forward(pool4_->forward(x2));
+    auto x4 = std::dynamic_pointer_cast<ResBlock>(block4_)->forward(pool4_->forward(x3));
 
     // Feature aggregation
     auto x1_processed = torch::selu(conv1_->forward(x1));
     auto x2_processed = torch::selu(conv2_->forward(x2));
     auto x3_processed = torch::selu(conv3_->forward(x3));
-    auto x4_processed = torch::selu(conv4_->forward(std::move(x4)));
+    auto x4_processed = torch::selu(conv4_->forward(x4));
 
     // Upsample with move semantics
     auto options = torch::nn::functional::InterpolateFuncOptions()
                        .mode(torch::kBilinear)
                        .align_corners(true);
 
-    auto x2_up = torch::nn::functional::interpolate(std::move(x2_processed),
+    auto x2_up = torch::nn::functional::interpolate(x2_processed,
                                                     options.size(std::vector<int64_t>{x1.size(2), x1.size(3)}));
-    auto x3_up = torch::nn::functional::interpolate(std::move(x3_processed),
+    auto x3_up = torch::nn::functional::interpolate(x3_processed,
                                                     options.size(std::vector<int64_t>{x1.size(2), x1.size(3)}));
-    auto x4_up = torch::nn::functional::interpolate(std::move(x4_processed),
+    auto x4_up = torch::nn::functional::interpolate(x4_processed,
                                                     options.size(std::vector<int64_t>{x1.size(2), x1.size(3)}));
 
     auto x1234 = torch::cat({std::move(x1_processed),
@@ -91,7 +91,7 @@ ALIKED::extract_dense_map(torch::Tensor image) && {
 
     // Generate score map and feature map
     auto score_map = torch::sigmoid(score_head_->forward(x1234.clone()));
-    auto feature_map = torch::nn::functional::normalize(std::move(x1234),
+    auto feature_map = torch::nn::functional::normalize(x1234,
                                                         torch::nn::functional::NormalizeFuncOptions().p(2).dim(1));
 
     // Unpad tensors with move semantics
@@ -212,28 +212,29 @@ void ALIKED::init_layers(std::string_view model_name) {
         std::make_shared<ResBlock>(config.c3, config.c4, 1, downsample4, "dcn"));
 
     // Convolution layers
+    const int out_channels = dim_ / 4;
     conv1_ = register_module("conv1",
-                             torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c1, dim_ / 4, 1)));
+                             torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c1, out_channels, 1).stride(1).bias(false)));
     conv2_ = register_module("conv2",
-                             torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c2, dim_ / 4, 1)));
+                             torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c2, out_channels, 1).stride(1).bias(false)));
     conv3_ = register_module("conv3",
-                             torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c3, dim_ / 4, 1)));
+                             torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c3, out_channels, 1).stride(1).bias(false)));
     conv4_ = register_module("conv4",
-                             torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c4, dim_ / 4, 1)));
+                             torch::nn::Conv2d(torch::nn::Conv2dOptions(config.c4, out_channels, 1).stride(1).bias(false)));
 
     // Score head
     torch::nn::Sequential score_head;
     score_head->push_back(torch::nn::Conv2d(
-        torch::nn::Conv2dOptions(dim_, 8, 1)));
+        torch::nn::Conv2dOptions(dim_, 8, 1).stride(1).bias(false)));
     score_head->push_back(torch::nn::SELU());
     score_head->push_back(torch::nn::Conv2d(
-        torch::nn::Conv2dOptions(8, 4, 3).padding(1)));
+        torch::nn::Conv2dOptions(8, 4, 3).padding(1).stride(1).bias(false)));
     score_head->push_back(torch::nn::SELU());
     score_head->push_back(torch::nn::Conv2d(
-        torch::nn::Conv2dOptions(4, 4, 3).padding(1)));
+        torch::nn::Conv2dOptions(4, 4, 3).padding(1).stride(1).bias(false)));
     score_head->push_back(torch::nn::SELU());
     score_head->push_back(torch::nn::Conv2d(
-        torch::nn::Conv2dOptions(4, 1, 3).padding(1)));
+        torch::nn::Conv2dOptions(4, 1, 3).padding(1).stride(1).bias(false)));
 
     score_head_ = register_module("score_head", score_head);
     register_module("desc_head", desc_head_);
@@ -289,6 +290,7 @@ void ALIKED::load_parameters(std::string_view pt_pth) {
         // Try parameters first
         if (auto it = param_map.find(name); it != param_map.end())
         {
+            std::cout << "Updating parameter: " << name << std::endl;
             if (it->second.sizes() == param.sizes())
             {
                 it->second.copy_(param);
@@ -305,6 +307,7 @@ void ALIKED::load_parameters(std::string_view pt_pth) {
         // Then try buffers
         if (auto it = buffer_map.find(name); it != buffer_map.end())
         {
+            std::cout << "Updating buffer: " << name << std::endl;
             if (it->second.sizes() == param.sizes())
             {
                 it->second.copy_(param);

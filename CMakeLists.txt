@@ -87,7 +87,7 @@ function(configure_build_type)
                 CUDA_SEPARABLE_COMPILATION ON
         )
     elseif (CMAKE_BUILD_TYPE STREQUAL "Release")
-        target_compile_options(${PROJECT_NAME} PRIVATE -O3 -use_fast_math -Xcompiler -Ofast )
+        target_compile_options(${PROJECT_NAME} PRIVATE -O3 -use_fast_math)
     endif ()
 endfunction()
 configure_build_type()
