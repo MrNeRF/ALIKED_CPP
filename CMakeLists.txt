@@ -33,6 +33,8 @@ message(STATUS "Building with ${used_cores} out of ${total_cores} available core
 
 set(HEADERS
         include/ALIKED.hpp
+        include/DKD.hpp
+        include/SDDH.hpp
         include/blocks.hpp
         include/get_patches.hpp
         include/input_padder.hpp

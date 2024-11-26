@@ -1,4 +1,5 @@
-#include "ALIKED.hpp"
+#include "SDDH.hpp"
+
 #include "get_patches.hpp"
 #include <torch/torch.h>
 
@@ -11,7 +12,7 @@ SDDH::SDDH(int dims, int kernel_size, int n_pos, bool conv2D, bool mask)
       mask_(mask) {
 
     // Channel num for offsets
-    int channel_num = mask ? 3 * n_pos : 2 * n_pos;
+    const int channel_num = mask ? 3 * n_pos : 2 * n_pos;
 
     // Build offset convolution layers
     torch::nn::Sequential offset_conv;
@@ -53,51 +54,93 @@ SDDH::SDDH(int dims, int kernel_size, int n_pos, bool conv2D, bool mask)
     }
 }
 
+torch::Tensor SDDH::process_features(torch::Tensor features, int64_t num_keypoints) && {
+    if (!conv2D_)
+    {
+        return torch::einsum("ncp,pcd->nd",
+                             {std::move(features), agg_weights_});
+    } else
+    {
+        features = std::move(features)
+                       .reshape({num_keypoints, -1})
+                       .unsqueeze(-1)
+                       .unsqueeze(-1);
+        return convM_->forward(std::move(features)).squeeze();
+    }
+}
+
+torch::Tensor SDDH::process_features(const torch::Tensor& features, int64_t num_keypoints) & {
+    auto features_copy = features.clone();
+    return std::move(*this).process_features(std::move(features_copy), num_keypoints);
+}
+
 std::tuple<std::vector<torch::Tensor>, std::vector<torch::Tensor>>
-SDDH::forward(torch::Tensor x, std::vector<torch::Tensor>& keypoints) {
+SDDH::forward(torch::Tensor x, std::vector<torch::Tensor>& keypoints) && {
+    // Make input tensor contiguous if it isn't already
+    if (!x.is_contiguous())
+    {
+        x = x.contiguous();
+    }
+
     const auto batch_size = x.size(0);
     const auto channels = x.size(1);
     const auto height = x.size(2);
     const auto width = x.size(3);
+    const auto device = x.device();
 
-    const auto wh = torch::tensor({width - 1.0f, height - 1.0f}, x.options());
+    const auto wh = torch::tensor({width - 1.0f, height - 1.0f},
+                                  torch::TensorOptions()
+                                      .dtype(x.dtype())
+                                      .device(device));
+
     const float max_offset = std::max(height, width) / 4.0f;
 
     std::vector<torch::Tensor> offsets;
     std::vector<torch::Tensor> descriptors;
+    offsets.reserve(batch_size);
+    descriptors.reserve(batch_size);
 
     for (int64_t batch_idx = 0; batch_idx < batch_size; ++batch_idx)
     {
         auto xi = x[batch_idx];
-        auto kptsi = keypoints[batch_idx];
+        // Ensure xi is contiguous
+        if (!xi.is_contiguous())
+        {
+            xi = xi.contiguous();
+        }
+
+        const auto& kptsi = keypoints[batch_idx];
         auto kptsi_wh = (kptsi / 2 + 0.5) * wh;
-        auto num_keypoints = kptsi_wh.size(0);
+        const auto num_keypoints = kptsi_wh.size(0);
 
         torch::Tensor patch;
         if (kernel_size_ > 1)
         {
-            // Get patches using custom op
-            auto kptsi_wh_long = kptsi_wh.to(torch::kLong);
-            patch = custom_ops::get_patches_forward(xi, kptsi_wh_long, static_cast<long>(kernel_size_));
+            // Ensure inputs to get_patches_forward are contiguous
+            auto kptsi_wh_long = kptsi_wh.to(torch::kLong).contiguous();
+            patch = custom_ops::get_patches_forward(xi.contiguous(), kptsi_wh_long, kernel_size_);
         } else
         {
-            auto kptsi_wh_long = kptsi_wh.to(torch::kLong);
+            auto kptsi_wh_long = kptsi_wh.to(torch::kLong).contiguous();
             patch = xi.index({Slice(),
                               kptsi_wh_long.index({Slice(), 1}),
                               kptsi_wh_long.index({Slice(), 0})})
                         .transpose(0, 1)
-                        .reshape({num_keypoints, channels, 1, 1});
+                        .reshape({num_keypoints, channels, 1, 1})
+                        .contiguous();
         }
 
-        // Compute offsets
-        auto offset = offset_conv_->forward(patch).clamp(-max_offset, max_offset);
+        // Rest of the code remains the same...
+        auto offset = offset_conv_->forward(std::move(patch));
+        offset = offset.clamp(-max_offset, max_offset);
 
         torch::Tensor mask_weight;
         if (mask_)
         {
             offset = offset.index({Slice(), Slice(), 0, 0})
                          .view({num_keypoints, 3, n_pos_})
-                         .permute({0, 2, 1});
+                         .permute({0, 2, 1})
+                         .contiguous();
             auto offset_xy = offset.index({Slice(), Slice(), Slice(None, 2)});
             mask_weight = torch::sigmoid(offset.index({Slice(), Slice(), 2}));
             offset = offset_xy;
@@ -105,15 +148,15 @@ SDDH::forward(torch::Tensor x, std::vector<torch::Tensor>& keypoints) {
         {
             offset = offset.index({Slice(), Slice(), 0, 0})
                          .view({num_keypoints, 2, n_pos_})
-                         .permute({0, 2, 1});
+                         .permute({0, 2, 1})
+                         .contiguous();
         }
 
         offsets.push_back(offset);
 
-        // Sample features at offset positions
         auto pos = kptsi_wh.unsqueeze(1) + offset;
         pos = 2.0 * pos / wh - 1;
-        pos = pos.reshape({1, num_keypoints * n_pos_, 1, 2});
+        pos = pos.reshape({1, num_keypoints * n_pos_, 1, 2}).contiguous();
 
         auto features = torch::nn::functional::grid_sample(
             xi.unsqueeze(0), pos,
@@ -122,14 +165,15 @@ SDDH::forward(torch::Tensor x, std::vector<torch::Tensor>& keypoints) {
                 .align_corners(true));
 
         features = features.reshape({channels, num_keypoints, n_pos_, 1})
-                       .permute({1, 0, 2, 3});
+                       .permute({1, 0, 2, 3})
+                       .contiguous();
 
         if (mask_)
         {
             features = features * mask_weight.unsqueeze(1).unsqueeze(-1);
         }
 
-        features = torch::selu(sf_conv_->forward(features)).squeeze(-1);
+        features = torch::selu(sf_conv_->forward(std::move(features))).squeeze(-1);
 
         torch::Tensor descs;
         if (!conv2D_)
@@ -137,15 +181,23 @@ SDDH::forward(torch::Tensor x, std::vector<torch::Tensor>& keypoints) {
             descs = torch::einsum("ncp,pcd->nd", {features, agg_weights_});
         } else
         {
-            features = features.reshape({num_keypoints, -1}).unsqueeze(-1).unsqueeze(-1);
-            descs = convM_->forward(features).squeeze();
+            features = features.reshape({num_keypoints, -1}).unsqueeze(-1).unsqueeze(-1).contiguous();
+            descs = convM_->forward(std::move(features)).squeeze();
         }
 
-        // Normalize descriptors
-        descs = torch::nn::functional::normalize(descs,
-                                                 torch::nn::functional::NormalizeFuncOptions().p(2).dim(1));
-        descriptors.push_back(descs);
+        descs = torch::nn::functional::normalize(std::move(descs),
+                                                 torch::nn::functional::NormalizeFuncOptions()
+                                                     .p(2)
+                                                     .dim(1));
+
+        descriptors.push_back(std::move(descs));
     }
 
-    return std::make_tuple(descriptors, offsets);
+    return std::make_tuple(std::move(descriptors), std::move(offsets));
+}
+
+std::tuple<std::vector<torch::Tensor>, std::vector<torch::Tensor>>
+SDDH::forward(const torch::Tensor& x, std::vector<torch::Tensor>& keypoints) & {
+    auto x_copy = x.clone();
+    return std::move(*this).forward(std::move(x_copy), keypoints);
 }
