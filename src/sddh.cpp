@@ -1,4 +1,4 @@
-#include "SDDH.hpp"
+#include "sddh.hpp"
 
 #include "get_patches.hpp"
 #include <torch/torch.h>

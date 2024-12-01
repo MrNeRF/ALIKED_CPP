@@ -58,9 +58,9 @@ add_definitions(-DALIKED_MODELS_DIR="${ALIKED_MODELS_DIR}")
 
 # Source files
 set(ALIKED_HEADERS
-        include/ALIKED.hpp
-        include/DKD.hpp
-        include/SDDH.hpp
+        include/aliked.hpp
+        include/dkd.hpp
+        include/sddh.hpp
         include/blocks.hpp
         include/get_patches.hpp
         include/input_padder.hpp
@@ -71,11 +71,11 @@ set(ALIKED_HEADERS
 
 set(ALIKED_SOURCES
         src/blocks.cpp
-        src/ALIKED.cpp
-        src/DKD.cpp
+        src/aliked.cpp
+        src/dkd.cpp
         src/input_padder.cpp
         src/get_patches.cpp
-        src/SDDH.cpp
+        src/sddh.cpp
         src/deform_conv2d.cpp
         src/deform_conv2d_kernel.cu
         src/get_patches_cuda.cu

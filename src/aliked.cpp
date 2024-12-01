@@ -1,7 +1,7 @@
-#include "ALIKED.hpp"
+#include "aliked.hpp"
 
-#include "DKD.hpp"
-#include "SDDH.hpp"
+#include "dkd.hpp"
+#include "sddh.hpp"
 
 #include <chrono>
 #include <filesystem>

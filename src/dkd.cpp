@@ -1,4 +1,4 @@
-#include "DKD.hpp"
+#include "dkd.hpp"
 
 #include <torch/torch.h>
 
