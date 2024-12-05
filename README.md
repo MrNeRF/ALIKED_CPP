@@ -1,7 +1,8 @@
 # ALIKED C++ Implementation
 
 This is a C++ implementation of ALIKED (Attentive Local and Implicit Keypoint Detector) using LibTorch and OpenCV. The implementation provides a high-performance, production-ready version of the ALIKED model for keypoint detection and matching.
-For more, join my discord server: https://discord.com/invite/NqwTqVYVmj 
+
+If you are interested in collaborating on this project, would like to reach out to me, or are considering to contribute to the discussion of the overall NeRF/GS pipeline, please join the Discord: https://discord.gg/NqwTqVYVmj
 
 ## Features
 
