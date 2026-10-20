@@ -137,3 +137,10 @@ add_custom_target(create_models_dir ALL
 
 # Print models directory location
 message(STATUS "Models directory: ${ALIKED_MODELS_DIR}")
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(dkd_selection_test tests/dkd_selection_test.cpp)
+    target_link_libraries(dkd_selection_test PRIVATE ${PROJECT_NAME}::lib)
+    add_test(NAME dkd_threshold_selection COMMAND dkd_selection_test)
+endif()

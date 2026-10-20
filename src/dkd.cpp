@@ -107,8 +107,8 @@ DKD::detect_keypoints(torch::Tensor scores_map, bool sub_pixel) && {
                 if (indices_kpt.size(0) > n_limit_)
                 {
                     auto kpts_sc = scores_view.index_select(0, indices_kpt);
-                    auto sort_idx = std::get<1>(kpts_sc.sort(true));
-                    indices_kpt = indices_kpt.index_select(0, sort_idx.slice(0, n_limit_));
+                    auto sort_idx = std::get<1>(kpts_sc.sort(/*dim=*/0, /*descending=*/true));
+                    indices_kpt = indices_kpt.index_select(0, sort_idx.slice(/*dim=*/0, /*start=*/0, /*end=*/n_limit_));
                 }
             }
 
@@ -161,8 +161,8 @@ DKD::detect_keypoints(torch::Tensor scores_map, bool sub_pixel) && {
                 if (indices_kpt.size(0) > n_limit_)
                 {
                     auto kpts_sc = scores_view.index_select(0, indices_kpt);
-                    auto sort_idx = std::get<1>(kpts_sc.sort(true));
-                    indices_kpt = indices_kpt.index_select(0, sort_idx.slice(0, n_limit_));
+                    auto sort_idx = std::get<1>(kpts_sc.sort(/*dim=*/0, /*descending=*/true));
+                    indices_kpt = indices_kpt.index_select(0, sort_idx.slice(/*dim=*/0, /*start=*/0, /*end=*/n_limit_));
                 }
             }
 
